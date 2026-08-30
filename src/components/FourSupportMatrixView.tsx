@@ -16,12 +16,14 @@ import {
 } from 'lucide-react';
 
 interface FourSupportMatrixViewProps {
-  analysis: FourSupportAnalysis;
+  analysis?: FourSupportAnalysis;
 }
 
 export const FourSupportMatrixView: React.FC<FourSupportMatrixViewProps> = ({
   analysis
 }) => {
+  if (!analysis) return null;
+
   const {
     filter,
     matchingLogsCount,

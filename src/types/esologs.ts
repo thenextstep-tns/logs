@@ -88,11 +88,20 @@ export interface FightSummaryResponse {
   };
 }
 
+export interface DifficultyOption {
+  id: number;
+  name: string;
+  isHardMode: boolean;
+}
+
 export interface BossReportsSummary {
   bossId: number;
   bossName?: string;
   zoneId?: number;
   zoneName?: string;
+  difficulty?: number;
+  difficultyLabel?: string;
+  availableDifficulties?: DifficultyOption[];
   totalReports: number;
   totalUniqueKills?: number;
   minDuration: number; // milliseconds
@@ -206,6 +215,9 @@ export interface FourSupportAnalysis {
 
 export interface AggregatedRosterData {
   bossId: number;
+  difficulty?: number;
+  difficultyLabel?: string;
+  availableDifficulties?: DifficultyOption[];
   reportsAnalyzed: number;
   filterDurationMin: number;
   filterDurationMax: number;

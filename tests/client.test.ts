@@ -15,7 +15,6 @@ describe('ESOLogsClient', () => {
       { id: 11, name: 'Maelstrom Arena', encounters: [{ id: 3000, name: 'Vale' }] }
     ];
 
-    // Mock fetch
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => mockZones
@@ -26,7 +25,7 @@ describe('ESOLogsClient', () => {
     expect(trials[0].name).toBe('Lucent Citadel');
   });
 
-  it('enforces difficulty=122 and metric=speed on boss rankings request', async () => {
+  it('enforces difficulty parameter and metric=speed on boss rankings request', async () => {
     let requestedUrl = '';
     global.fetch = vi.fn().mockImplementation((url: string) => {
       requestedUrl = url;
@@ -41,7 +40,7 @@ describe('ESOLogsClient', () => {
       });
     });
 
-    await client.getBossRankingsPage(58, 1);
+    await client.getBossRankingsPage(58, 122, 1);
     expect(requestedUrl).toContain('difficulty=122');
     expect(requestedUrl).toContain('metric=speed');
     expect(requestedUrl).toContain('rankings/encounter/58');

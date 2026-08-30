@@ -8,6 +8,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const bossIdParam = searchParams.get('bossId');
+    const difficultyParam = searchParams.get('difficulty');
 
     if (!bossIdParam) {
       return NextResponse.json(
@@ -24,13 +25,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetches all available reports for boss with difficulty=122, kills=2 (via speed rankings)
-    const rankings = await esologsClient.getAllBossRankings(bossId);
+    const difficulty = difficultyParam ? parseInt(difficultyParam, 10) : undefined;
+
+    // Dynamically resolves rankings, active difficulty, and all available difficulties
+    const { rankings, difficulty: resolvedDiff, difficultyLabel, availableDifficulties } =
+      await esologsClient.getAllBossRankings(bossId, difficulty);
+      
     const stats = calculateMinMaxKillTimes(rankings);
 
     return NextResponse.json({
       success: true,
       bossId,
+      difficulty: resolvedDiff,
+      difficultyLabel,
+      availableDifficulties,
       totalReports: rankings.length,
       totalUniqueKills: stats.totalUniqueKills,
       minDuration: stats.minDuration,

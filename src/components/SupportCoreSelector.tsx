@@ -2,13 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { SupportFilter, AvailableSupportCombo } from '@/types/esologs';
-import { Shield, Heart, Sparkles, Filter, CheckCircle2, ChevronRight, Layers } from 'lucide-react';
+import { Shield, Heart, Filter, Layers } from 'lucide-react';
 
 interface SupportCoreSelectorProps {
   availableCombos: AvailableSupportCombo[];
   currentFilter?: SupportFilter;
   onApplySupportFilter: (filter: SupportFilter) => void;
-  isLoading: boolean;
+  isLoading?: boolean;
 }
 
 const ESO_CLASSES = [
@@ -88,17 +88,10 @@ export const SupportCoreSelector: React.FC<SupportCoreSelectorProps> = ({
     <div className="bg-eso-card rounded-xl border border-eso-border p-6 shadow-xl space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-eso-border/60">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-eso-gold">
-            <Sparkles className="w-4 h-4" />
-            <span>4-Player Support Core Engine</span>
-          </div>
+        <div>
           <h2 className="text-xl font-bold text-white">
             Select 2 Tanks &amp; 2 Healers
           </h2>
-          <p className="text-xs text-slate-400">
-            Filters clear logs where all four specific support classes appear together in one raid, calculates their gear synergy, and recalculates DD slots.
-          </p>
         </div>
 
         <button
@@ -115,10 +108,6 @@ export const SupportCoreSelector: React.FC<SupportCoreSelectorProps> = ({
       {/* Discovered Support Setups in Logs (1-Click Meta Presets) */}
       {availableCombos.length > 0 && (
         <div className="space-y-2">
-          <div className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5 text-eso-gold" />
-            <span>Support Cores Found in Clears (Top Meta Setups):</span>
-          </div>
           <div className="flex flex-wrap gap-2">
             {availableCombos.slice(0, 5).map((combo, idx) => {
               const active = isCurrentFilterMatched(combo);
@@ -148,8 +137,14 @@ export const SupportCoreSelector: React.FC<SupportCoreSelectorProps> = ({
         </div>
       )}
 
+      {/* Custom Picker Title / Prompt */}
+      <div className="pt-2 text-xs font-semibold text-slate-300 flex items-center gap-2">
+        <Layers className="w-4 h-4 text-eso-gold flex-shrink-0" />
+        <span>If the suggested classes don&apos;t work for you, pick your combination, and we&apos;ll see if logs like these exist</span>
+      </div>
+
       {/* Custom 4 Dropdowns Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Tank 1 */}
         <div className="bg-eso-dark/60 p-3.5 rounded-xl border border-eso-tank/40 space-y-2">
           <label className="text-xs font-bold text-eso-tank flex items-center gap-1.5">

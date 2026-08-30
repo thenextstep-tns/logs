@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const bossIdParam = searchParams.get('bossId');
     const minTimeParam = searchParams.get('minTime');
     const maxTimeParam = searchParams.get('maxTime');
+    const difficultyParam = searchParams.get('difficulty');
 
     // Support filter parameters
     const tank1 = searchParams.get('tank1');
@@ -34,9 +35,11 @@ export async function GET(request: NextRequest) {
     const bossId = parseInt(bossIdParam, 10);
     const minTime = minTimeParam ? parseInt(minTimeParam, 10) : 0;
     const maxTime = maxTimeParam ? parseInt(maxTimeParam, 10) : Infinity;
+    const difficulty = difficultyParam ? parseInt(difficultyParam, 10) : undefined;
 
-    // 1. Fetch all rankings for boss
-    const rankings = await esologsClient.getAllBossRankings(bossId);
+    // 1. Fetch rankings for boss with auto-resolved or selected difficulty
+    const { rankings, difficulty: resolvedDiff, difficultyLabel, availableDifficulties } =
+      await esologsClient.getAllBossRankings(bossId, difficulty);
 
     // 2. Filter rankings within the user-selected kill duration window
     const filteredReports = rankings.filter(
@@ -44,9 +47,14 @@ export async function GET(request: NextRequest) {
     );
 
     if (filteredReports.length === 0) {
+      const emptyAggregated = aggregateRosterData(bossId, [], minTime, maxTime, supportFilter);
+      emptyAggregated.difficulty = resolvedDiff;
+      emptyAggregated.difficultyLabel = difficultyLabel;
+      emptyAggregated.availableDifficulties = availableDifficulties;
+
       return NextResponse.json({
         success: true,
-        data: aggregateRosterData(bossId, [], minTime, maxTime, supportFilter),
+        data: emptyAggregated,
         message: 'No reports found within the selected kill time range.'
       });
     }
@@ -104,8 +112,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 4. Aggregate data (including 4-support analysis if requested)
+    // 4. Aggregate data
     const aggregated = aggregateRosterData(bossId, summaries, minTime, maxTime, supportFilter);
+    aggregated.difficulty = resolvedDiff;
+    aggregated.difficultyLabel = difficultyLabel;
+    aggregated.availableDifficulties = availableDifficulties;
 
     return NextResponse.json({
       success: true,

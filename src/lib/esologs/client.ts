@@ -1,10 +1,15 @@
 import {
   ESOZone,
   ESORankingsResponse,
-  FightSummaryResponse
+  FightSummaryResponse,
+  DifficultyOption
 } from '@/types/esologs';
 
 const BASE_URL = 'https://www.esologs.com/v1';
+
+// In-memory caches
+const bossDifficultyCache = new Map<number, number>();
+const bossAvailableDifficultiesCache = new Map<number, DifficultyOption[]>();
 
 export class ESOLogsClient {
   private apiKey: string;
@@ -54,8 +59,6 @@ export class ESOLogsClient {
    */
   async getHardModeTrials(): Promise<ESOZone[]> {
     const zones = await this.getZones();
-    // Exclude single player arenas (Maelstrom, Infinite Archive, Dungeons, Dummy tests)
-    // Filter zones that represent 12-player trials (e.g. Aetherian Archive, Hel Ra, Sanctum, Maw, HoF, AS, CR, Sunspire, KA, RG, DSR, SE, LC, etc.)
     const nonTrialKeywords = ['dungeons', 'arenas (group)', 'maelstrom arena', 'iron atronach'];
     return zones.filter(z => {
       const lower = z.name.toLowerCase();
@@ -65,26 +68,101 @@ export class ESOLogsClient {
   }
 
   /**
-   * Fetches speed rankings for an encounter (difficulty 122 = Veteran Hard Mode, kills only)
+   * Discovers all available difficulties for an encounter (e.g. HM vs Non-HM)
    */
-  async getBossRankingsPage(bossId: number, page: number = 1): Promise<ESORankingsResponse> {
+  async getAvailableDifficulties(bossId: number): Promise<DifficultyOption[]> {
+    if (bossAvailableDifficultiesCache.has(bossId)) {
+      return bossAvailableDifficultiesCache.get(bossId)!;
+    }
+
+    // Special cases for Cloudrest and Asylum Sanctorium
+    if (bossId === 27) { // Z'Maja (Cloudrest)
+      const options: DifficultyOption[] = [
+        { id: 125, name: 'Veteran +3 (Hard Mode)', isHardMode: true },
+        { id: 121, name: 'Veteran (+0 Non-HM)', isHardMode: false }
+      ];
+      bossAvailableDifficultiesCache.set(bossId, options);
+      return options;
+    }
+
+    if (bossId === 23) { // Saint Olms (Asylum)
+      const options: DifficultyOption[] = [
+        { id: 124, name: 'Veteran +2 (Hard Mode)', isHardMode: true },
+        { id: 121, name: 'Veteran (+0 Non-HM)', isHardMode: false }
+      ];
+      bossAvailableDifficultiesCache.set(bossId, options);
+      return options;
+    }
+
+    // Check if 122 (Standard Veteran Hard Mode) exists for this boss
+    let has122 = false;
+    try {
+      const res122 = await this.fetchJson<ESORankingsResponse>(`rankings/encounter/${bossId}`, {
+        difficulty: 122,
+        metric: 'speed',
+        page: 1
+      });
+      has122 = res122 && Array.isArray(res122.rankings) && res122.rankings.length > 0;
+    } catch (e) {
+      has122 = false;
+    }
+
+    const options: DifficultyOption[] = [];
+    if (has122) {
+      options.push({ id: 122, name: 'Veteran Hard Mode', isHardMode: true });
+      options.push({ id: 121, name: 'Veteran (Non-HM)', isHardMode: false });
+    } else {
+      options.push({ id: 121, name: 'Veteran', isHardMode: false });
+    }
+
+    bossAvailableDifficultiesCache.set(bossId, options);
+    return options;
+  }
+
+  /**
+   * Dynamically resolves the highest available Veteran / Hard Mode difficulty for an encounter
+   */
+  async resolveBestDifficulty(bossId: number): Promise<number> {
+    if (bossDifficultyCache.has(bossId)) {
+      return bossDifficultyCache.get(bossId)!;
+    }
+
+    const available = await this.getAvailableDifficulties(bossId);
+    const best = available[0]?.id || 122;
+    bossDifficultyCache.set(bossId, best);
+    return best;
+  }
+
+  /**
+   * Fetches speed rankings for an encounter at a specific or auto-resolved difficulty
+   */
+  async getBossRankingsPage(bossId: number, difficulty?: number, page: number = 1): Promise<ESORankingsResponse> {
+    const diff = difficulty !== undefined ? difficulty : await this.resolveBestDifficulty(bossId);
     return this.fetchJson<ESORankingsResponse>(`rankings/encounter/${bossId}`, {
-      difficulty: 122, // Veteran Hard Mode
+      difficulty: diff,
       metric: 'speed',
       page
     });
   }
 
   /**
-   * Fetches ALL available speed reports across all pages for a boss
+   * Fetches ALL available speed reports across all pages for a boss at the best/selected difficulty
    */
-  async getAllBossRankings(bossId: number): Promise<ESORankingsResponse['rankings']> {
+  async getAllBossRankings(bossId: number, difficulty?: number): Promise<{
+    rankings: ESORankingsResponse['rankings'];
+    difficulty: number;
+    difficultyLabel: string;
+    availableDifficulties: DifficultyOption[];
+  }> {
+    const availableDifficulties = await this.getAvailableDifficulties(bossId);
+    const diff = difficulty !== undefined ? difficulty : (availableDifficulties[0]?.id || 122);
+    
     const allRankings: ESORankingsResponse['rankings'] = [];
     let page = 1;
     let hasMore = true;
 
-    while (hasMore && page <= 10) { // Safety cap of 10 pages (1000 reports max)
-      const res = await this.getBossRankingsPage(bossId, page);
+    while (hasMore && page <= 10) {
+      const res = await this.getBossRankingsPage(bossId, diff, page);
       if (res && Array.isArray(res.rankings) && res.rankings.length > 0) {
         allRankings.push(...res.rankings);
         hasMore = res.hasMorePages === true;
@@ -94,7 +172,15 @@ export class ESOLogsClient {
       }
     }
 
-    return allRankings;
+    const matchedOption = availableDifficulties.find(d => d.id === diff);
+    const difficultyLabel = matchedOption ? matchedOption.name : (diff === 122 ? 'Veteran Hard Mode' : 'Veteran');
+
+    return {
+      rankings: allRankings,
+      difficulty: diff,
+      difficultyLabel,
+      availableDifficulties
+    };
   }
 
   /**

@@ -6,12 +6,12 @@ import { Clock, Filter, Zap, RefreshCw, Layers } from 'lucide-react';
 
 interface KillTimeSliderProps {
   totalReports: number;
-  totalUniqueKills: number;
+  totalUniqueKills?: number;
   minDuration: number; // in ms
   maxDuration: number; // in ms
   reports: Array<{ duration: number }>;
   onApplyFilter: (min: number, max: number) => void;
-  isLoading: boolean;
+  isLoading?: boolean;
 }
 
 export const KillTimeSlider: React.FC<KillTimeSliderProps> = ({
