@@ -153,6 +153,57 @@ export interface ClassRoleStats {
   popularSkills: SkillStat[];
 }
 
+export interface SupportFilter {
+  tank1: string;
+  tank2: string;
+  healer1: string;
+  healer2: string;
+}
+
+export interface AvailableSupportCombo {
+  tank1: string;
+  tank2: string;
+  healer1: string;
+  healer2: string;
+  comboLabel: string;
+  count: number;
+  percentage: number;
+}
+
+export interface FourSupportTeamLoadout {
+  tank1Class: string;
+  tank1Gear: string;
+  tank2Class: string;
+  tank2Gear: string;
+  healer1Class: string;
+  healer1Gear: string;
+  healer2Class: string;
+  healer2Gear: string;
+  count: number;
+  percentage: number;
+}
+
+export interface FourSupportAnalysis {
+  filter: SupportFilter;
+  matchingLogsCount: number;
+  totalLogsAnalyzed: number;
+  availableCombos: AvailableSupportCombo[];
+  supportGearSuggestions: {
+    tank1: { className: string; popularCombos: GearCombination[]; topSets: GearSetStat[] };
+    tank2: { className: string; popularCombos: GearCombination[]; topSets: GearSetStat[] };
+    healer1: { className: string; popularCombos: GearCombination[]; topSets: GearSetStat[] };
+    healer2: { className: string; popularCombos: GearCombination[]; topSets: GearSetStat[] };
+  };
+  teamLoadouts: FourSupportTeamLoadout[];
+  recalculatedDps: {
+    totalSlots: number;
+    averagePerRaid: number;
+    classes: ClassFrequency[];
+    popularCombos: GearCombination[];
+    popularSkills: SkillStat[];
+  };
+}
+
 export interface AggregatedRosterData {
   bossId: number;
   reportsAnalyzed: number;
@@ -164,4 +215,6 @@ export interface AggregatedRosterData {
     dps: RoleCompositionStats;
   };
   classRoles: ClassRoleStats[];
+  availableSupportCombos?: AvailableSupportCombo[];
+  fourSupportAnalysis?: FourSupportAnalysis;
 }

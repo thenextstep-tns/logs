@@ -3,11 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { BossReportsSummary, AggregatedRosterData } from '@/types/esologs';
+import { BossReportsSummary, AggregatedRosterData, SupportFilter } from '@/types/esologs';
 import { formatDuration } from '@/lib/esologs/aggregator';
 import { KillTimeSlider } from '@/components/KillTimeSlider';
 import { CompositionSummary } from '@/components/CompositionSummary';
 import { ClassRoleDeepDive } from '@/components/ClassRoleDeepDive';
+import { SupportCoreSelector } from '@/components/SupportCoreSelector';
+import { FourSupportMatrixView } from '@/components/FourSupportMatrixView';
 import { LoadingState } from '@/components/LoadingState';
 import { ErrorState } from '@/components/ErrorState';
 import {
@@ -40,7 +42,10 @@ export default function BossRosterPage() {
   const [minTime, setMinTime] = useState<number>(0);
   const [maxTime, setMaxTime] = useState<number>(Infinity);
 
-  // Step 3: Aggregated roster state
+  // Step 3: Support Filter State (2 Tanks + 2 Healers)
+  const [supportFilter, setSupportFilter] = useState<SupportFilter | null>(null);
+
+  // Step 4: Aggregated roster state
   const [rosterData, setRosterData] = useState<AggregatedRosterData | null>(null);
   const [isLoadingRoster, setIsLoadingRoster] = useState<boolean>(false);
   const [rosterError, setRosterError] = useState<string | null>(null);
@@ -58,7 +63,7 @@ export default function BossRosterPage() {
         setMinTime(data.minDuration);
         setMaxTime(data.maxDuration);
 
-        // Automatically fetch initial roster analytics for full range
+        // Fetch initial analytics
         fetchRosterAnalytics(data.minDuration, data.maxDuration);
       } else {
         setReportsError(data.error || 'Failed to fetch reports.');
@@ -70,21 +75,49 @@ export default function BossRosterPage() {
     }
   };
 
-  // Fetch group composition, gear combos, and skills within selected duration
-  const fetchRosterAnalytics = async (selectedMin: number, selectedMax: number) => {
+  // Fetch group composition, gear combos, and 4-support analysis within selected duration
+  const fetchRosterAnalytics = async (
+    selectedMin: number,
+    selectedMax: number,
+    filterOverride?: SupportFilter | null
+  ) => {
     if (!bossId || isNaN(bossId)) return;
     setIsLoadingRoster(true);
     setRosterError(null);
     try {
+      const currentFilterToUse = filterOverride !== undefined ? filterOverride : supportFilter;
+
       const query = new URLSearchParams({
         bossId: String(bossId),
         minTime: String(selectedMin),
         maxTime: String(selectedMax)
       });
+
+      if (currentFilterToUse) {
+        query.append('tank1', currentFilterToUse.tank1);
+        query.append('tank2', currentFilterToUse.tank2);
+        query.append('healer1', currentFilterToUse.healer1);
+        query.append('healer2', currentFilterToUse.healer2);
+      }
+
       const res = await fetch(`/api/roster?${query.toString()}`);
       const data = await res.json();
       if (data.success && data.data) {
         setRosterData(data.data);
+
+        // Auto-select first available support combo if not already selected
+        if (!currentFilterToUse && data.data.availableSupportCombos && data.data.availableSupportCombos.length > 0) {
+          const top = data.data.availableSupportCombos[0];
+          const initialFilter = {
+            tank1: top.tank1,
+            tank2: top.tank2,
+            healer1: top.healer1,
+            healer2: top.healer2
+          };
+          setSupportFilter(initialFilter);
+          // Re-fetch with this initial filter
+          fetchRosterAnalytics(selectedMin, selectedMax, initialFilter);
+        }
       } else {
         setRosterError(data.error || 'Failed to calculate roster statistics.');
       }
@@ -99,10 +132,15 @@ export default function BossRosterPage() {
     fetchReportsSummary();
   }, [bossId]);
 
-  const handleApplyFilter = (newMin: number, newMax: number) => {
+  const handleApplyTimeFilter = (newMin: number, newMax: number) => {
     setMinTime(newMin);
     setMaxTime(newMax);
-    fetchRosterAnalytics(newMin, newMax);
+    fetchRosterAnalytics(newMin, newMax, supportFilter);
+  };
+
+  const handleApplySupportFilter = (newSupportFilter: SupportFilter) => {
+    setSupportFilter(newSupportFilter);
+    fetchRosterAnalytics(minTime, maxTime, newSupportFilter);
   };
 
   return (
@@ -160,7 +198,7 @@ export default function BossRosterPage() {
         </div>
       </div>
 
-      {/* Step 1: Initial Reports Summary & Constraint Filter */}
+      {/* Reports Summary & Constraint Filter */}
       {isLoadingReports ? (
         <LoadingState
           message="Fetching Boss Kill Reports..."
@@ -188,38 +226,53 @@ export default function BossRosterPage() {
         </div>
       ) : reportsData ? (
         <div className="space-y-8">
-          {/* Kill Time Constraint Slider */}
+          {/* 1. Kill Time Constraint Slider */}
           <KillTimeSlider
             totalReports={reportsData.totalReports}
             totalUniqueKills={reportsData.totalUniqueKills || reportsData.totalReports}
             minDuration={reportsData.minDuration}
             maxDuration={reportsData.maxDuration}
             reports={reportsData.reports}
-            onApplyFilter={handleApplyFilter}
+            onApplyFilter={handleApplyTimeFilter}
             isLoading={isLoadingRoster}
           />
 
-          {/* Step 2: Analytics Results Area */}
+          {/* 2. 2-Tanks + 2-Healers Support Core Selector */}
+          {rosterData?.availableSupportCombos && (
+            <SupportCoreSelector
+              availableCombos={rosterData.availableSupportCombos}
+              currentFilter={supportFilter || undefined}
+              onApplySupportFilter={handleApplySupportFilter}
+              isLoading={isLoadingRoster}
+            />
+          )}
+
+          {/* Analytics Results */}
           {isLoadingRoster ? (
             <LoadingState
-              message="Analyzing Roster Compositions &amp; Gear Combinations..."
-              subMessage={`Aggregating data across reports in window ${formatDuration(minTime)} – ${formatDuration(maxTime)}`}
+              message="Analyzing 4-Support Core, Synergistic Gear &amp; DD Roster..."
+              subMessage={`Aggregating logs in window ${formatDuration(minTime)} – ${formatDuration(maxTime)}`}
             />
           ) : rosterError ? (
             <ErrorState
               title="Roster Analytics Error"
               error={rosterError}
-              onRetry={() => fetchRosterAnalytics(minTime, maxTime)}
+              onRetry={() => fetchRosterAnalytics(minTime, maxTime, supportFilter)}
             />
           ) : rosterData ? (
-            <div className="space-y-8">
-              {/* 1. Group Composition */}
+            <div className="space-y-10">
+              {/* 4-Support Synergistic Gear & Recalculated DDs */}
+              {rosterData.fourSupportAnalysis && (
+                <FourSupportMatrixView analysis={rosterData.fourSupportAnalysis} />
+              )}
+
+              {/* Overall Group Composition */}
               <CompositionSummary
                 composition={rosterData.composition}
                 reportsAnalyzed={rosterData.reportsAnalyzed}
               />
 
-              {/* 2. Gear Combinations & Skill Deep Dive */}
+              {/* General Class + Role Deep Dive */}
               <ClassRoleDeepDive classRoles={rosterData.classRoles} />
             </div>
           ) : null}

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { esologsClient } from '@/lib/esologs/client';
 import { aggregateRosterData } from '@/lib/esologs/aggregator';
 import { getCachedSummary, setCachedSummary } from '@/lib/esologs/cache';
-import { FightSummaryResponse } from '@/types/esologs';
+import { FightSummaryResponse, SupportFilter } from '@/types/esologs';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +12,17 @@ export async function GET(request: NextRequest) {
     const bossIdParam = searchParams.get('bossId');
     const minTimeParam = searchParams.get('minTime');
     const maxTimeParam = searchParams.get('maxTime');
+
+    // Support filter parameters
+    const tank1 = searchParams.get('tank1');
+    const tank2 = searchParams.get('tank2');
+    const healer1 = searchParams.get('healer1');
+    const healer2 = searchParams.get('healer2');
+
+    const supportFilter: SupportFilter | undefined =
+      tank1 && tank2 && healer1 && healer2
+        ? { tank1, tank2, healer1, healer2 }
+        : undefined;
 
     if (!bossIdParam) {
       return NextResponse.json(
@@ -35,7 +46,7 @@ export async function GET(request: NextRequest) {
     if (filteredReports.length === 0) {
       return NextResponse.json({
         success: true,
-        data: aggregateRosterData(bossId, [], minTime, maxTime),
+        data: aggregateRosterData(bossId, [], minTime, maxTime, supportFilter),
         message: 'No reports found within the selected kill time range.'
       });
     }
@@ -67,7 +78,6 @@ export async function GET(request: NextRequest) {
         if (cached) return cached;
 
         try {
-          // Fetch fight start and end times from report
           const fightsData = await esologsClient.getReportFights(item.reportID);
           const fight = fightsData.fights?.find(f => f.id === item.fightID);
           if (!fight) return null;
@@ -94,8 +104,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 4. Aggregate data
-    const aggregated = aggregateRosterData(bossId, summaries, minTime, maxTime);
+    // 4. Aggregate data (including 4-support analysis if requested)
+    const aggregated = aggregateRosterData(bossId, summaries, minTime, maxTime, supportFilter);
 
     return NextResponse.json({
       success: true,
