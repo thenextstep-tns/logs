@@ -241,6 +241,22 @@ function generateOverallSummary(
     );
     const totalFightSec = items.reduce((acc, i) => acc + i.fight.durationSec, 0);
 
+    const interruptActionCounts: Record<string, number> = {};
+    for (const item of items) {
+      const counts = item.result.cruxStats?.interruptActionCounts || {};
+      for (const [action, cnt] of Object.entries(counts)) {
+        interruptActionCounts[action] = (interruptActionCounts[action] || 0) + cnt;
+      }
+    }
+    let dominantInterruptAction: string | undefined = undefined;
+    let maxActionCount = 0;
+    for (const [action, count] of Object.entries(interruptActionCounts)) {
+      if (count >= 2 && count > maxActionCount) {
+        dominantInterruptAction = action;
+        maxActionCount = count;
+      }
+    }
+
     coaching = getArcanistCoachingFeedback({
       bossCount: items.length,
       totalBeams,
@@ -253,7 +269,9 @@ function generateOverallSummary(
       connectedLAs,
       emptyLAs,
       activeUptimePct,
-      totalIdleSec
+      totalIdleSec,
+      dominantInterruptAction,
+      interruptActionCounts
     });
   } else if (specClass === 'necromancer') {
     const totalGCDCasts = items.reduce((acc, i) => acc + i.result.totalGCDCasts, 0);
@@ -269,6 +287,22 @@ function generateOverallSummary(
     const perfectTripletsPct =
       totalCycles > 0 ? Math.round((perfectTripletsCount / totalCycles) * 100) : 100;
 
+    const brokenPatternsCount = items.reduce(
+      (acc, i) => acc + (i.result.nonStandardCyclesCount || 0),
+      0
+    );
+
+    // Aggregate pattern counts across fights to check for missing standard sequences
+    const patternAgg = new Map<string, { id: string; name: string; count: number; description?: string }>();
+    for (const item of items) {
+      for (const p of item.result.patternStats || []) {
+        const existing = patternAgg.get(p.id) || { id: p.id, name: p.name, count: 0, description: p.description };
+        existing.count += p.observedCount;
+        patternAgg.set(p.id, existing);
+      }
+    }
+    const missingPatterns = Array.from(patternAgg.values()).filter(p => p.count === 0);
+
     coaching = getNecromancerCoachingFeedback({
       bossCount: items.length,
       totalGCDCasts,
@@ -277,7 +311,10 @@ function generateOverallSummary(
       connectedLAs,
       emptyLAs,
       activeUptimePct,
-      totalIdleSec
+      totalIdleSec,
+      brokenPatternsCount,
+      missingPatterns,
+      totalCycles
     });
   } else if (specClass === 'dragonknight' || specClass === 'dk') {
     const isTank = items.some(i => i.result.dkStats?.specVariant === 'tank');
@@ -738,12 +775,28 @@ export function computeBossTrialComparison(
   }
 
   const details = points.length > 0 ? ` (${points.join(', ')})` : '';
+  const fightIdSeed = Math.abs(item.fight.id);
   if (score >= 2) {
-    return `*This boss went better than other bosses in this trial${details}.*`;
+    const positiveOptions = [
+      `*This boss went better than other bosses in this trial${details}.*`,
+      `*Cleaner execution here compared to your trial average${details}.*`,
+      `*Noticeably sharper rotation on this encounter${details}.*`
+    ];
+    return positiveOptions[fightIdSeed % positiveOptions.length];
   } else if (score <= -2) {
-    return `*This boss was more turbulent than other bosses in this trial${details}.*`;
+    const negativeOptions = [
+      `*This boss was more turbulent than other bosses in this trial${details}.*`,
+      `*Encounter mechanics caused more rotational friction here than your trial average${details}.*`,
+      `*Rotational pacing slipped below your trial baseline on this boss${details}.*`
+    ];
+    return negativeOptions[fightIdSeed % negativeOptions.length];
   } else {
-    return `*Consistent with your trial average${details}.*`;
+    const neutralOptions = [
+      `*Consistent with your trial average${details}.*`,
+      `*Steady pull matching your overall trial baseline${details}.*`,
+      `*Performed right in line with your trial pace${details}.*`
+    ];
+    return neutralOptions[fightIdSeed % neutralOptions.length];
   }
 }
 
@@ -797,18 +850,56 @@ export function formatBossStatsLines(
   } else if (specClass === 'arcanist' && item.result.cruxStats) {
     const c = item.result.cruxStats;
 
-    const cutText = c.interruptedBeams > 0 ? ` (${c.interruptedBeams} interrupted)` : '';
+    let cutText = '';
+    if (c.interruptedBeams > 0) {
+      cutText = c.dominantInterruptAction
+        ? ` (${c.interruptedBeams} interrupted, primarily by ${c.dominantInterruptAction})`
+        : ` (${c.interruptedBeams} interrupted)`;
+    }
     lines.push(
       `- **Fatecarver Execution**: ${c.optimalPct}% Optimal — ${c.optimalBeams} / ${c.totalBeams} 3-Crux full channels${cutText}`
     );
 
+    const underCruxAdvice = c.underCruxBeams > 0 ? ' — recommend Crux Counter addon' : '';
     lines.push(
-      `- **Crux Usage**: ${c.threeCruxPct}% at 3 Crux (${c.underCruxBeams} cast at < 3 Crux)`
+      `- **Crux Usage**: ${c.threeCruxPct}% at 3 Crux (${c.underCruxBeams} cast at < 3 Crux${underCruxAdvice})`
     );
 
     lines.push(
       `- **Beam Channel Uptime**: ${c.beamUptimePct}% (${c.totalBeamChannelSec}s of ${item.fight.durationSec}s fight)`
     );
+
+    lines.push(
+      `- **Active Uptime & Idle**: ${item.result.idleStats.activeUptimePct}% active (${item.result.idleStats.totalIdleSec}s idle downtime)`
+    );
+
+    lines.push(
+      `- **Light Attacks**: ${item.result.idleStats.laHitRatePct ?? 0}% hit rate (${item.result.idleStats.connectedLAsCount} connected / ${item.result.idleStats.emptyLAsCount} empty)`
+    );
+  } else if (specClass === 'necromancer') {
+    const n = item.result.cadenceStats;
+    const patterns = item.result.patternStats || [];
+    const broken = item.result.nonStandardCyclesCount;
+    const totalC = item.result.totalCycles;
+
+    lines.push(
+      `- **Corpseburster Cadence**: ${n?.perfectTripletsPct ?? 0}% on-schedule (${n?.perfectTripletsCount ?? 0} on-time, ${n?.delayedCadenceCount ?? 0} delayed)`
+    );
+
+    if (patterns.length > 0) {
+      const pText = patterns.map(p => `${p.name} (${p.observedCount})`).join(', ');
+      lines.push(`- **Pattern Breakdown**: ${pText}`);
+
+      const missing = patterns.filter(p => p.observedCount === 0);
+      if (missing.length > 0) {
+        lines.push(`- **Missing Regular Patterns**: ${missing.map(m => m.name).join(', ')} (0 casts)`);
+      }
+    }
+
+    if (broken > 0) {
+      const brokenPct = Math.round((broken / Math.max(1, totalC)) * 100);
+      lines.push(`- **Broken Patterns**: ${broken} occasion(s) where standard 3-cast sequence broke (${brokenPct}% of cycles)`);
+    }
 
     lines.push(
       `- **Active Uptime & Idle**: ${item.result.idleStats.activeUptimePct}% active (${item.result.idleStats.totalIdleSec}s idle downtime)`

@@ -417,7 +417,15 @@ export function extractCruxAndBeams(
 
     const heldFullDuration = !cancelAction && nextCastGapSec >= expectedDurationSec - 0.3;
 
+    let cancelActionName: string | undefined = undefined;
     if (cancelAction) {
+      const lower = cancelAction.ability.name.toLowerCase();
+      if (lower.includes('bash')) cancelActionName = 'Bash';
+      else if (lower.includes('roll dodge') || lower.includes('dodge')) cancelActionName = 'Roll Dodge';
+      else if (lower.includes('block')) cancelActionName = 'Block';
+      else if (lower.includes('break free')) cancelActionName = 'Break Free';
+      else cancelActionName = cancelAction.ability.name;
+
       const gapSec = Number(((cancelAction.timestamp - rem.timestamp) / 1000).toFixed(2));
       actualDurationSec = Math.max(0.5, Math.min(gapSec, tickSpanSec > 0 ? tickSpanSec : gapSec));
       isInterrupted = true;
@@ -477,6 +485,7 @@ export function extractCruxAndBeams(
       expectedDurationSec,
       isInterrupted,
       interruptReason,
+      cancelAction: cancelActionName,
       ticks: pulses.length,
       expectedTicks,
       lostTicks,
@@ -600,8 +609,25 @@ export function extractCruxAndBeams(
       lostTicks: b.lostTicks,
       estimatedDamageLost: b.estimatedDamageLost,
       reason: b.interruptReason || 'Channel ended prematurely',
+      cancelAction: b.cancelAction,
       suboptimalType: b.cruxBefore === 3 ? 'interrupted' : 'under_crux_and_interrupted'
     }));
+
+  const interruptActionCounts: Record<string, number> = {};
+  for (const b of interruptedList) {
+    if (b.cancelAction) {
+      interruptActionCounts[b.cancelAction] = (interruptActionCounts[b.cancelAction] || 0) + 1;
+    }
+  }
+
+  let dominantInterruptAction: string | undefined = undefined;
+  let maxCount = 0;
+  for (const [action, count] of Object.entries(interruptActionCounts)) {
+    if (count >= 2 && count > maxCount && count / Math.max(1, interruptedBeams) >= 0.25) {
+      dominantInterruptAction = action;
+      maxCount = count;
+    }
+  }
 
   const cruxStats: CruxStats = {
     totalBeams,
@@ -617,6 +643,8 @@ export function extractCruxAndBeams(
     totalEstimatedDamageLost,
     avgDamageLostPerInterruptedBeam,
     avgTicksLostPerInterruptedBeam,
+    dominantInterruptAction,
+    interruptActionCounts,
     beams,
     underCruxList,
     interruptedList

@@ -7,15 +7,27 @@
 export const OVERALL_PHRASES = {
   CLEAN: [
     "Clean parsing overall across the board. Your core priorities and weaving discipline were on point.",
-    "Overall solid performance throughout the trial with consistent rotation fundamentals."
+    "Overall solid performance throughout the trial with consistent rotation fundamentals.",
+    "Really crisp execution across these fights — ability queues were tight and key mechanic windows were handled smoothly.",
+    "Great rotational discipline throughout the trial, keeping downtime low and maintaining steady priority flow.",
+    "Impression-worthy consistency here: your weaving cadence was sharp and abilities followed the ideal priority order.",
+    "Strong parse mechanics overall. You stayed composed through mechanics with very few missed windows or wasted casts."
   ],
   MIXED: [
     "Solid rotation baseline overall, but there are a couple specific priority leaks costing you free DPS.",
-    "Good foundation across these fights, though priority collisions and mistimed refreshes are holding your parse back."
+    "Good foundation across these fights, though priority collisions and mistimed refreshes are holding your parse back.",
+    "You have a very dependable rhythm going, but tightening up a few skill-priority decisions will yield an immediate damage boost.",
+    "Promising consistency overall — addressing a couple of recurring cadence slips and stack timings will lift your numbers noticeably.",
+    "The core rotation is definitely there, though a few awkward refresh windows and delayed procs caused friction.",
+    "Decent fight execution overall; smoothing out your priority handoffs will make the rotation feel much more effortless."
   ],
   ROUGH: [
     "The rotation was pretty turbulent across these fights. Multiple skill priorities are colliding and causing downtime.",
-    "Noticeable rotational leaks across the trial — tightening up your ability priority will yield an immediate damage boost."
+    "Noticeable rotational leaks across the trial — tightening up your ability priority will yield an immediate damage boost.",
+    "Rotational pacing had significant gaps across the trial. Stabilizing your core sequence and avoiding early recasts will make a huge difference.",
+    "A fair amount of rotational friction was detected across these fights. Taking a moment to align your core ability sequence will quickly stabilize your parse.",
+    "Rotational priorities were frequently out of sync across these pulls, leading to dropped debuffs and idle gaps.",
+    "Several competing skill priorities disrupted your rhythm throughout the trial. Focusing on the foundational priorities below will bring rapid improvement."
   ]
 };
 
@@ -27,7 +39,7 @@ export const SORC_PHRASES = {
     "Great discipline on Frag procs — instant casts were prioritized right away on proc."
   ],
   FRAGS_IMMEDIATE_MID: [
-    "You're holding onto Frag procs a bit too long ({delayed} delayed). Instant procs are absolute #1 priority; don't finish other skills or DoTs first when a proc is ready.",
+    "You're holding onto Frag procs a bit too long ({delayed} delayed). Instant procs are absolute #1 priority; even if a DoT is about to expire, casting the instant Frag on your very next GCD is almost always a damage gain before refreshing that DoT.",
     "Frag proc reactions were delayed on several casts ({delayed} delayed for {gcds} GCDs). When the proc lights up, fire it on the very next GCD to avoid wasting proc rolls."
   ],
   FRAGS_IMMEDIATE_LOW: [
@@ -49,7 +61,7 @@ export const SORC_PHRASES = {
     "A few Bound Armaments casts went out too early with under 4 stacks, missing out on the full dagger damage."
   ],
   ARMAMENTS_LOW: [
-    "You're firing Bound Armaments at low stacks (averaging {avg} daggers; only {pct}% at 4+). Always let your light attacks build to 4+ (or even 8) stacks before pressing it.",
+    "You're firing Bound Armaments at low stacks (averaging {avg} daggers; only {pct}% at 4+). Always let your light attacks build to 4+ (or even 8) stacks before pressing it. If tracking stacks during mechanics is tricky, aiming for after every 4th light attack is a safe rule of thumb.",
     "Significant DPS loss on Bound Armaments from premature firing ({suboptimal} casts under 4 stacks). Treat 4 stacks as your hard minimum before releasing."
   ],
 
@@ -87,7 +99,7 @@ export const SORC_PHRASES = {
     "Clean Curse tracking; zero clipped explosions, maximizing the double-burst damage."
   ],
   CURSE_CLIPPED: [
-    "Haunting Curse was recast early {count} time(s), clipping the second 8.5s explosion. Always wait for the second pop before refreshing.",
+    "Haunting Curse was recast early {count} time(s), clipping the second 8.5s explosion. Always wait for the second pop before refreshing; clipping forfeits your biggest burst window.",
     "Be careful not to refresh Haunting Curse before the second explosion at 8.5s; clipping it cancels the bigger burst."
   ],
   CURSE_NEGLECTED: [
@@ -110,9 +122,13 @@ export const ARCANIST_PHRASES = {
     "Major beam leakage: over half your Fatecarvers were cut short early ({cut} cut early). Let the full 4.5s channel finish before pressing your next ability.",
     "High number of interrupted beams ({cut} cut short). Early cancels severely gimp Arcanist DPS; ride out the full channel."
   ],
+  BEAM_INTERRUPTED_ACTION: [
+    "Fatecarver channels were repeatedly cut short early by {action} ({count} time(s)). Beams lose their heaviest damage pulses at the end of the channel — check corresponding casts and avoid triggering {action} while channeling.",
+    "Clear cancellation pattern detected: {count} Fatecarver beam(s) were interrupted by {action}. Make sure you aren't reflexively pressing {action} during the 4.5s channel."
+  ],
   CRUX_UNDER_CRUX: [
-    "Fatecarver was cast with under 3 Crux {count} time(s). Always build all 3 Crux before beaming; under-crux beams lose up to 66% damage.",
-    "Avoid casting Fatecarver at 1 or 2 Crux. Take the extra GCD to build 3 Crux so your beam gets full damage and duration."
+    "Fatecarver was cast with under 3 Crux {count} time(s). Always build all 3 Crux before beaming (under-crux beams lose up to 66% damage and channel length) — installing the Crux Counter addon is strongly recommended to keep your stacks clearly visible on-screen so you never beam at 1 or 2 Crux.",
+    "Avoid beaming at 1 or 2 Crux ({count} under-crux cast(s)). We recommend installing the Crux Counter addon to make tracking stacks effortless and ensure every Fatecarver fires at full 3 Crux."
   ],
   CRUX_EXCELLENT: [
     "Crux generation discipline was top tier — every single Fatecarver was cast at full 3 Crux.",
@@ -128,11 +144,25 @@ export const ARCANIST_PHRASES = {
 export const NECRO_PHRASES = {
   NECRO_CADENCE_HIGH: [
     "Corpseburster cadence was clockwork — strictly adhering to the 1-in-3 Blastbones rhythm.",
-    "Great rotational tempo; Blastbones was cast right on schedule every third skill."
+    "Great rotational tempo; Blastbones was cast right on schedule every third skill.",
+    "Remarkably steady Blastbones engine — kept the 1-in-3 cadence rolling with minimal delay."
   ],
   NECRO_CADENCE_DELAYED: [
     "Blastbones was frequently delayed beyond the 3-GCD window. Blastbones is your engine; never let it sit ready off cooldown.",
-    "Delayed Blastbones casts threw off your cadence. Keep to the strict BB -> Skill -> Skill rhythm to maximize Corpseburster pops."
+    "Delayed Blastbones casts threw off your cadence. Keep to the strict BB -> Skill -> Skill rhythm to maximize Corpseburster pops.",
+    "Blastbones sat off cooldown longer than necessary on several cycles. Prioritizing Blastbones every third cast will noticeably smooth out your damage flow."
+  ],
+  NECRO_PATTERN_MISSING_SIPHON_SIPHON: [
+    "Notice: The high-burst 'BB - Siphon - Siphon' pattern was completely missing across these fights. When all DoTs are rolling and multiple corpses are on the ground, double-detonating Siphon is your highest-burst Corpseburster sequence.",
+    "Missing regular pattern: you never used 'BB - Siphon - Siphon'. When your DoTs are refreshed and corpses are available, double Siphon casts trigger back-to-back Corpseburster detonations for maximum burst."
+  ],
+  NECRO_PATTERN_MISSING_GENERIC: [
+    "Missing regular pattern: the '{name}' sequence was never cast across these fights. Incorporating the full set of standard Blastbones patterns ensures you adapt cleanly to changing fight conditions.",
+    "Notice: The standard '{name}' sequence was not observed. Weaving all 4 regular Blastbones patterns keeps your Corpseburster procs flowing smoothly."
+  ],
+  NECRO_PATTERNS_BROKEN: [
+    "Noticed {brokenCount} occasion(s) where regular rotation patterns broke (unexpected skill orders between Blastbones or dropped cadence). Sticking strictly to the 4 regular Blastbones sequences (BB -> Skill -> Skill) will stabilize your DPS.",
+    "Rotational sequence broke on {brokenCount} occasion(s) across these fights. Keeping to the standard 3-cast patterns prevents awkward pauses and ensures consistent Corpseburster detonations."
   ],
   NECRO_CORPSE_MANAGEMENT: [
     "Keep an eye on corpse availability when consuming Siphon so you don't starve Corpseburster detonations.",
@@ -622,6 +652,8 @@ export function getArcanistCoachingFeedback(params: {
   emptyLAs: number;
   activeUptimePct: number;
   totalIdleSec: number;
+  dominantInterruptAction?: string;
+  interruptActionCounts?: Record<string, number>;
 }): CoachingFeedback {
   const strengths: string[] = [];
   const leaks: string[] = [];
@@ -654,6 +686,20 @@ export function getArcanistCoachingFeedback(params: {
     leaks.push(interpolate(ARCANIST_PHRASES.BEAM_INTERRUPTED_MID[0], { cut: params.interruptedBeams }));
   } else {
     leaks.push(interpolate(ARCANIST_PHRASES.BEAM_INTERRUPTED_LOW[0], { cut: params.interruptedBeams }));
+  }
+
+  // Specific interruption pattern if clear (e.g. cancelled by Bash or Roll Dodge)
+  if (
+    params.dominantInterruptAction &&
+    (params.interruptActionCounts?.[params.dominantInterruptAction] || 0) >= 2
+  ) {
+    const actionCount = params.interruptActionCounts![params.dominantInterruptAction];
+    leaks.push(
+      interpolate(ARCANIST_PHRASES.BEAM_INTERRUPTED_ACTION[0], {
+        action: params.dominantInterruptAction,
+        count: actionCount
+      })
+    );
   }
 
   // Beam uptime
@@ -695,6 +741,9 @@ export function getNecromancerCoachingFeedback(params: {
   emptyLAs: number;
   activeUptimePct: number;
   totalIdleSec: number;
+  brokenPatternsCount?: number;
+  missingPatterns?: Array<{ id: string; name: string; count: number; description?: string }>;
+  totalCycles?: number;
 }): CoachingFeedback {
   const strengths: string[] = [];
   const leaks: string[] = [];
@@ -708,10 +757,48 @@ export function getNecromancerCoachingFeedback(params: {
     leaks.push(interpolate(UNIVERSAL_PHRASES.LA_HIT_LOW[0], { pct: laPct, empty: params.emptyLAs }));
   }
 
+  // Cadence
   if (params.perfectTripletsPct >= 70) {
     strengths.push(NECRO_PHRASES.NECRO_CADENCE_HIGH[0]);
   } else {
     leaks.push(NECRO_PHRASES.NECRO_CADENCE_DELAYED[0]);
+  }
+
+  // Missing regular patterns check (e.g. BB - Siphon - Siphon)
+  if (params.missingPatterns && params.missingPatterns.length > 0) {
+    const missingSiphonSiphon = params.missingPatterns.find(
+      p => p.id === 'bb-siphon-siphon' || p.name.toLowerCase().includes('siphon - siphon')
+    );
+    if (missingSiphonSiphon) {
+      leaks.push(NECRO_PHRASES.NECRO_PATTERN_MISSING_SIPHON_SIPHON[0]);
+    } else {
+      leaks.push(
+        interpolate(NECRO_PHRASES.NECRO_PATTERN_MISSING_GENERIC[0], {
+          name: params.missingPatterns[0].name
+        })
+      );
+    }
+  }
+
+  // Broken patterns check
+  if (params.brokenPatternsCount && params.brokenPatternsCount > 0) {
+    leaks.push(
+      interpolate(NECRO_PHRASES.NECRO_PATTERNS_BROKEN[0], {
+        brokenCount: params.brokenPatternsCount
+      })
+    );
+  }
+
+  // Uptime
+  if (params.activeUptimePct >= 85) {
+    strengths.push(interpolate(UNIVERSAL_PHRASES.UPTIME_HIGH[0], { pct: params.activeUptimePct.toFixed(1) }));
+  } else if (params.activeUptimePct < 75) {
+    leaks.push(
+      interpolate(UNIVERSAL_PHRASES.UPTIME_LOW[0], {
+        idle: params.totalIdleSec.toFixed(1),
+        pct: params.activeUptimePct.toFixed(1)
+      })
+    );
   }
 
   let assessment = OVERALL_PHRASES.MIXED[0];

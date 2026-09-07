@@ -244,6 +244,7 @@ export interface CruxBeamEvent {
   expectedDurationSec: number;
   isInterrupted: boolean;
   interruptReason?: string;
+  cancelAction?: string; // 'Bash' | 'Roll Dodge' | 'Block' | 'Break Free' etc.
   ticks: number;
   expectedTicks: number;
   lostTicks: number;
@@ -263,6 +264,7 @@ export interface InterruptedBeamDetail {
   lostTicks: number;
   estimatedDamageLost: number;
   reason: string;
+  cancelAction?: string;
   suboptimalType: 'interrupted' | 'under_crux_and_interrupted';
 }
 
@@ -280,6 +282,8 @@ export interface CruxStats {
   totalEstimatedDamageLost: number;
   avgDamageLostPerInterruptedBeam: number;
   avgTicksLostPerInterruptedBeam: number;
+  dominantInterruptAction?: string;
+  interruptActionCounts?: Record<string, number>;
   beams: CruxBeamEvent[];
   underCruxList: Array<{
     beamIndex: number;

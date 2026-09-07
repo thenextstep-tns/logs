@@ -244,8 +244,54 @@ describe('Discord Boss Feedback Formatter', () => {
 
     expect(report).toContain('## Orphic Shattered Shard');
     expect(report).toContain('- **Fatecarver Execution**: 50% Optimal — 15 / 30 3-Crux full channels (15 interrupted)');
-    expect(report).toContain('- **Crux Usage**: 93.3% at 3 Crux (2 cast at < 3 Crux)');
+    expect(report).toContain('- **Crux Usage**: 93.3% at 3 Crux (2 cast at < 3 Crux — recommend Crux Counter addon)');
     expect(report).toContain('- **Beam Channel Uptime**: 48.4% (116.9s of 241.4s fight)');
+    expect(report).toContain('Crux Counter addon');
+  });
+
+  it('formats Necromancer encounters with missing regular patterns and broken pattern occasions', () => {
+    const fight: BossFightContext = { id: 28, name: 'Defense Prism', kill: true, durationSec: 180 };
+    const necroResult: RotationAnalysisResult = {
+      ...dummyBaseResult,
+      fightMeta: {
+        reportId: 'rep3',
+        fightId: 28,
+        fightName: 'Defense Prism',
+        startTime: 100000,
+        endTime: 280000,
+        actorId: 10,
+        actorName: 'NecroOne',
+        actorClass: 'Necromancer',
+        durationSec: 180
+      },
+      spec: {
+        id: 'shooting-star-corpseburster-necro',
+        name: 'Shooting Star Corpseburster Necromancer',
+        class: 'Necromancer',
+        isRecognized: true
+      },
+      nonStandardCyclesCount: 5,
+      totalCycles: 20,
+      cadenceStats: {
+        averageInterval: 3.2,
+        targetInterval: 3,
+        perfectTripletsCount: 14,
+        perfectTripletsPct: 70,
+        delayedCadenceCount: 6,
+        prematureCadenceCount: 0
+      },
+      patternStats: [
+        { id: 'bb-siphon-dot', name: 'BB - Siphon - Dot', observedCount: 9, observedPct: 45, description: '', isValidPattern: true },
+        { id: 'bb-dot-dot', name: 'BB - Dot - Dot', observedCount: 4, observedPct: 20, description: '', isValidPattern: true },
+        { id: 'bb-siphon-siphon', name: 'BB - Siphon - Siphon', observedCount: 0, observedPct: 0, description: '', isValidPattern: true },
+        { id: 'bb-siphon-skull', name: 'BB - Siphon - Skulls', observedCount: 2, observedPct: 10, description: '', isValidPattern: true }
+      ]
+    };
+
+    const report = generateFullDiscordReport([{ fight, result: necroResult }]);
+    expect(report).toContain('BB - Siphon - Siphon');
+    expect(report).toContain('- **Missing Regular Patterns**: BB - Siphon - Siphon (0 casts)');
+    expect(report).toContain('- **Broken Patterns**: 5 occasion(s) where standard 3-cast sequence broke (25% of cycles)');
   });
 
   it('can suppress key skill mechanics when includeKeySkills is false', () => {
