@@ -5,3 +5,5 @@ out
 dist
 coverage
 *.log
+*.tsbuildinfo
+transcript_*

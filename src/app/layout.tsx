@@ -23,14 +23,32 @@ export default function RootLayout({
       <body className="antialiased min-h-screen flex flex-col selection:bg-yellow-500/30 selection:text-yellow-200">
         <header className="border-b border-eso-border/60 bg-eso-dark/80 backdrop-blur-md sticky top-0 z-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3 group">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-eso-gold to-eso-goldDark flex items-center justify-center shadow-lg shadow-eso-gold/10 group-hover:scale-105 transition-transform text-eso-dark">
-                <DodoIcon className="w-6 h-6" />
-              </div>
-              <span className="font-bold text-lg tracking-wide text-white group-hover:text-eso-goldLight transition-colors">
-                Dodo Scribe
-              </span>
-            </Link>
+            <div className="flex items-center gap-8">
+              <Link href="/" className="flex items-center gap-3 group">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-eso-gold to-eso-goldDark flex items-center justify-center shadow-lg shadow-eso-gold/10 group-hover:scale-105 transition-transform text-eso-dark">
+                  <DodoIcon className="w-6 h-6" />
+                </div>
+                <span className="font-bold text-lg tracking-wide text-white group-hover:text-eso-goldLight transition-colors">
+                  Dodo Scribe
+                </span>
+              </Link>
+
+              <nav className="flex items-center gap-1">
+                <Link
+                  href="/"
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-all"
+                >
+                  Trial Roster
+                </Link>
+                <Link
+                  href="/rotation"
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-all flex items-center gap-1.5"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-eso-gold animate-pulse" />
+                  Rotation Analyser
+                </Link>
+              </nav>
+            </div>
           </div>
         </header>
 

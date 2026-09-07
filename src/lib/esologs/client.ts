@@ -23,12 +23,13 @@ export class ESOLogsClient {
   }
 
   private async fetchJson<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
-    if (!this.apiKey) {
+    const key = this.apiKey || process.env.ESOLOGS_API_KEY || process.env.ESOLOGS_CLIENT_SECRET || '';
+    if (!key) {
       throw new Error('ESOlogs API Key is missing. Please check ESOLOGS_API_KEY / ESOLOGS_CLIENT_SECRET.');
     }
 
     const searchParams = new URLSearchParams({
-      api_key: this.apiKey,
+      api_key: key,
       ...Object.fromEntries(
         Object.entries(params).map(([k, v]) => [k, String(v)])
       )
@@ -184,10 +185,218 @@ export class ESOLogsClient {
   }
 
   /**
-   * Fetches report fight metadata
+   * Fetches report fight metadata and friendlies
    */
-  async getReportFights(reportId: string): Promise<{ title: string; zone: number; fights: Array<{ id: number; start_time: number; end_time: number; boss: number; name: string }> }> {
+  async getReportFights(reportId: string): Promise<{
+    title: string;
+    zone: number;
+    fights: Array<{ id: number; start_time: number; end_time: number; boss: number; name: string; kill?: boolean; bossPercentage?: number }>;
+    friendlies?: Array<{ id: number; name: string; type: string; icon: string; displayName?: string; fights: Array<{ id: number }> }>;
+  }> {
     return this.fetchJson(`report/fights/${reportId}`);
+  }
+
+  /**
+   * Fetches all cast events for a specific player during a fight, handling pagination.
+   */
+  async getCastEvents(
+    reportId: string,
+    startTime: number,
+    endTime: number,
+    sourceId: number
+  ): Promise<import('@/types/rotation').RawCastEvent[]> {
+    const allEvents: import('@/types/rotation').RawCastEvent[] = [];
+    let currentStart = startTime;
+    let pageCount = 0;
+    const maxPages = 20; // safety ceiling
+
+    while (currentStart < endTime && pageCount < maxPages) {
+      pageCount++;
+      const res = await this.fetchJson<{
+        events?: import('@/types/rotation').RawCastEvent[];
+        nextPageTimestamp?: number;
+      }>(`report/events/casts/${reportId}`, {
+        start: currentStart,
+        end: endTime,
+        sourceid: sourceId
+      });
+
+      if (res && Array.isArray(res.events) && res.events.length > 0) {
+        allEvents.push(...res.events);
+      }
+
+      if (res && res.nextPageTimestamp && res.nextPageTimestamp > currentStart && res.nextPageTimestamp < endTime) {
+        currentStart = res.nextPageTimestamp;
+      } else {
+        break;
+      }
+    }
+
+    return allEvents;
+  }
+
+  /**
+   * Fetches buff / aura events for a specific player during a fight (e.g. Crux tracking).
+   */
+  async getBuffEvents(
+    reportId: string,
+    startTime: number,
+    endTime: number,
+    sourceId: number,
+    abilityId?: number
+  ): Promise<import('@/types/rotation').RawBuffEvent[]> {
+    const allEvents: import('@/types/rotation').RawBuffEvent[] = [];
+    let currentStart = startTime;
+    let pageCount = 0;
+    const maxPages = 20;
+
+    const params: Record<string, string | number> = {
+      start: currentStart,
+      end: endTime,
+      sourceid: sourceId
+    };
+    if (abilityId) {
+      params.abilityid = abilityId;
+    }
+
+    while (currentStart < endTime && pageCount < maxPages) {
+      pageCount++;
+      params.start = currentStart;
+
+      const res = await this.fetchJson<{
+        events?: import('@/types/rotation').RawBuffEvent[];
+        nextPageTimestamp?: number;
+      }>(`report/events/buffs/${reportId}`, params);
+
+      if (res && Array.isArray(res.events) && res.events.length > 0) {
+        allEvents.push(...res.events);
+      }
+
+      if (res && res.nextPageTimestamp && res.nextPageTimestamp > currentStart && res.nextPageTimestamp < endTime) {
+        currentStart = res.nextPageTimestamp;
+      } else {
+        break;
+      }
+    }
+
+    return allEvents;
+  }
+
+  /**
+   * Fetches damage-done events for a specific player during a fight (e.g. Fatecarver channeled damage ticks).
+   */
+  async getDamageEvents(
+    reportId: string,
+    startTime: number,
+    endTime: number,
+    sourceId: number,
+    abilityId?: number
+  ): Promise<import('@/types/rotation').RawDamageEvent[]> {
+    const allEvents: import('@/types/rotation').RawDamageEvent[] = [];
+    let currentStart = startTime;
+    let pageCount = 0;
+    const maxPages = 20;
+
+    const params: Record<string, string | number> = {
+      start: currentStart,
+      end: endTime,
+      sourceid: sourceId
+    };
+    if (abilityId) {
+      params.abilityid = abilityId;
+    }
+
+    while (currentStart < endTime && pageCount < maxPages) {
+      pageCount++;
+      params.start = currentStart;
+
+      const res = await this.fetchJson<{
+        events?: import('@/types/rotation').RawDamageEvent[];
+        nextPageTimestamp?: number;
+      }>(`report/events/damage-done/${reportId}`, params);
+
+      if (res && Array.isArray(res.events) && res.events.length > 0) {
+        allEvents.push(...res.events);
+      }
+
+      if (res && res.nextPageTimestamp && res.nextPageTimestamp > currentStart && res.nextPageTimestamp < endTime) {
+        currentStart = res.nextPageTimestamp;
+      } else {
+        break;
+      }
+    }
+
+    return allEvents;
+  }
+
+  /**
+   * Parses an ESO Logs URL into its constituents (reportId, fightId, sourceId)
+   */
+  static parseReportUrl(rawUrl: string): {
+    reportId: string | null;
+    fightId?: number;
+    sourceId?: number;
+    type?: string;
+    view?: string;
+  } {
+    if (!rawUrl || typeof rawUrl !== 'string') {
+      return { reportId: null };
+    }
+
+    const trimmed = rawUrl.trim();
+
+    // Direct report ID (alphanumeric string of 16 characters e.g. 7LKMqfRc3ZdCzGJx)
+    if (/^[a-zA-Z0-9]{16}$/.test(trimmed)) {
+      return { reportId: trimmed };
+    }
+
+    try {
+      // Handle URLs like https://www.esologs.com/reports/7LKMqfRc3ZdCzGJx?fight=25&type=casts&source=10&view=events
+      // or with hash #fight=25
+      const urlObj = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+      
+      // Extract report ID from pathname e.g. /reports/7LKMqfRc3ZdCzGJx
+      const match = urlObj.pathname.match(/\/reports\/([a-zA-Z0-9]+)/);
+      const reportId = match ? match[1] : null;
+
+      // Extract search params from either search or hash
+      const searchParams = new URLSearchParams(urlObj.search);
+      if (urlObj.hash && urlObj.hash.includes('=')) {
+        const hashContent = urlObj.hash.replace(/^#/, '');
+        const hashParams = new URLSearchParams(hashContent);
+        hashParams.forEach((v, k) => {
+          if (!searchParams.has(k)) searchParams.set(k, v);
+        });
+      }
+
+      const fightParam = searchParams.get('fight');
+      const sourceParam = searchParams.get('source') || searchParams.get('sourceid');
+      const type = searchParams.get('type') || undefined;
+      const view = searchParams.get('view') || undefined;
+
+      const fightId = fightParam && fightParam !== 'last' ? parseInt(fightParam, 10) : undefined;
+      const sourceId = sourceParam ? parseInt(sourceParam, 10) : undefined;
+
+      return {
+        reportId,
+        fightId: isNaN(fightId as number) ? undefined : fightId,
+        sourceId: isNaN(sourceId as number) ? undefined : sourceId,
+        type,
+        view
+      };
+    } catch (e) {
+      // Fallback regex extraction
+      const match = trimmed.match(/reports\/([a-zA-Z0-9]{16})/);
+      const reportId = match ? match[1] : null;
+      const fightMatch = trimmed.match(/[?&#]fight=([0-9]+)/);
+      const sourceMatch = trimmed.match(/[?&#]source(?:id)?=([0-9]+)/);
+
+      return {
+        reportId,
+        fightId: fightMatch ? parseInt(fightMatch[1], 10) : undefined,
+        sourceId: sourceMatch ? parseInt(sourceMatch[1], 10) : undefined
+      };
+    }
   }
 
   /**
@@ -196,8 +405,94 @@ export class ESOLogsClient {
   async getFightSummary(reportId: string, startTime: number, endTime: number): Promise<FightSummaryResponse> {
     return this.fetchJson<FightSummaryResponse>(`report/tables/summary/${reportId}`, {
       start: startTime,
-      end: endTime
+      end: endTime,
     });
+  }
+
+  /**
+   * Fetches the summary buffs table for a player during a fight (contains aura uptimes).
+   */
+  async getBuffTable(
+    reportId: string,
+    startTime: number,
+    endTime: number,
+    sourceId: number
+  ): Promise<Array<{ name: string; guid: number; totalUptime: number; type?: number }>> {
+    const res = await this.fetchJson<{
+      auras?: Array<{ name: string; guid: number; totalUptime: number; type?: number }>;
+    }>(`report/tables/buffs/${reportId}`, {
+      start: startTime,
+      end: endTime,
+      sourceid: sourceId
+    });
+    return res?.auras || [];
+  }
+
+  /**
+   * Fetches the debuffs applied to targets (enemies/bosses) during a fight.
+   * Parameter by='target' returns enemy target debuffs including Heat Shock, Off-Balance, Taunt, Crusher, etc.
+   */
+  async getTargetDebuffTable(
+    reportId: string,
+    startTime: number,
+    endTime: number,
+    targetId?: number
+  ): Promise<Array<{
+    name: string;
+    guid: number;
+    totalUptime: number;
+    totalUses: number;
+    type?: number;
+    bands?: Array<{ startTime: number; endTime: number }>;
+  }>> {
+    const params: Record<string, string | number> = {
+      start: startTime,
+      end: endTime,
+      by: 'target'
+    };
+    if (targetId) {
+      params.targetid = targetId;
+    }
+    const res = await this.fetchJson<{
+      auras?: Array<{
+        name: string;
+        guid: number;
+        totalUptime: number;
+        totalUses: number;
+        type?: number;
+        bands?: Array<{ startTime: number; endTime: number }>;
+      }>;
+    }>(`report/tables/debuffs/${reportId}`, params);
+    return res?.auras || [];
+  }
+
+
+  /**
+   * Fetches the Ultimate resource timeline series for a player during a fight (abilityid 1000 = Ultimate).
+   * Returns an array of [timestamp, ultimateValue] pairs.
+   */
+  async getUltimateResourceSeries(
+    reportId: string,
+    startTime: number,
+    endTime: number,
+    sourceId: number
+  ): Promise<Array<[number, number]>> {
+    const res = await this.fetchJson<{
+      series?: Array<{
+        name?: string;
+        data?: Array<[number, number]>;
+      }>;
+    }>(`report/tables/resources/${reportId}`, {
+      start: startTime,
+      end: endTime,
+      sourceid: sourceId,
+      abilityid: 1000
+    });
+
+    if (res?.series && res.series.length > 0 && Array.isArray(res.series[0].data)) {
+      return res.series[0].data;
+    }
+    return [];
   }
 }
 
