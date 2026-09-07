@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { RotationAnalysisResult, PerformanceZone } from '@/types/rotation';
 import { OptimalityChart } from '@/components/rotation/OptimalityChart';
 import { PatternDistribution } from '@/components/rotation/PatternDistribution';
@@ -45,10 +45,8 @@ interface ReportFriendly {
   fights?: Array<{ id: number }>;
 }
 
-const DEFAULT_URL = 'https://www.esologs.com/reports/7LKMqfRc3ZdCzGJx';
-
 export default function RotationAnalyzerPage() {
-  const [logUrl, setLogUrl] = useState<string>(DEFAULT_URL);
+  const [logUrl, setLogUrl] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<RotationAnalysisResult | null>(null);
@@ -67,14 +65,17 @@ export default function RotationAnalyzerPage() {
     overrideFightId?: number,
     overrideSourceId?: number
   ) => {
-    const urlToUse = overrideUrl !== undefined ? overrideUrl : logUrl;
-    if (!urlToUse.trim()) {
+    const urlToUse = (overrideUrl !== undefined ? overrideUrl : logUrl).trim();
+    if (!urlToUse) {
       setError('Please paste a valid ESO Logs URL or Report ID.');
       return;
     }
 
     setIsLoading(true);
     setError(null);
+    if (overrideFightId === undefined && overrideSourceId === undefined) {
+      setAnalysis(null);
+    }
 
     try {
       const res = await fetch('/api/rotation', {
@@ -110,11 +111,6 @@ export default function RotationAnalyzerPage() {
       setIsLoading(false);
     }
   };
-
-  // Initial load
-  useEffect(() => {
-    runAnalysis(DEFAULT_URL);
-  }, []);
 
   const handleFightChange = (fightIdNum: number) => {
     setSelectedFightId(fightIdNum);
@@ -184,31 +180,18 @@ export default function RotationAnalyzerPage() {
               placeholder="Paste ESO Logs URL (e.g. https://www.esologs.com/reports/7LKMqfRc3ZdCzGJx)..."
               value={logUrl}
               onChange={e => setLogUrl(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && runAnalysis(logUrl)}
+              onKeyDown={e => e.key === 'Enter' && logUrl.trim() && runAnalysis(logUrl)}
               className="w-full pl-9 pr-3 py-2 rounded-lg bg-eso-dark border border-eso-border focus:border-eso-gold/60 focus:ring-1 focus:ring-eso-gold/40 text-xs text-white placeholder:text-slate-500 outline-none transition-all font-mono"
             />
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button
-              onClick={() => {
-                setLogUrl(DEFAULT_URL);
-                runAnalysis(DEFAULT_URL);
-              }}
-              className="px-3 py-2 rounded-lg bg-eso-dark border border-eso-border/80 hover:border-eso-gold/60 text-xs text-slate-300 hover:text-white flex items-center gap-1.5 transition-all"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-eso-gold" />
-              Reset Example
-            </button>
-
-            <button
-              onClick={() => runAnalysis(logUrl)}
-              disabled={isLoading}
-              className="flex-1 sm:flex-none px-5 py-2 rounded-lg bg-gradient-to-r from-eso-gold to-eso-goldDark hover:from-eso-goldLight hover:to-eso-gold text-slate-950 text-xs font-bold shadow-md transition-all disabled:opacity-50"
-            >
-              {isLoading ? 'Analyzing...' : 'Analyze Log'}
-            </button>
-          </div>
+          <button
+            onClick={() => runAnalysis(logUrl)}
+            disabled={isLoading || !logUrl.trim()}
+            className="w-full sm:w-auto px-5 py-2 rounded-lg bg-gradient-to-r from-eso-gold to-eso-goldDark hover:from-eso-goldLight hover:to-eso-gold text-slate-950 text-xs font-bold shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? 'Analyzing...' : 'Analyze Log'}
+          </button>
         </div>
       </div>
 
