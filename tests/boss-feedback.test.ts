@@ -184,7 +184,7 @@ describe('Discord Boss Feedback Formatter', () => {
     expect(report).toContain('- **Bound Armaments**: 33% Optimal (4/12 at 4+, avg 2.5 stacks)');
     expect(report).toContain('- **Status Knife**: 2/11 on-time (4 dropped, 4 early, avg 11.1s)');
     expect(report).toContain('- **Haunting Curse**: 7/8 intact (0 clipped, avg 18s)');
-    expect(report).toContain('- **Light Attacks**: 93.8% hit rate (75 hit / 5 empty)');
+    expect(report).toContain('- **Light Attacks**: 93.8% hit rate (75 connected / 5 empty)');
   });
 
   it('formats Arcanist boss encounters correctly with human coaching and key mechanics', () => {

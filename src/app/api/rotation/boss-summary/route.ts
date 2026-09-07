@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { esologsClient, ESOLogsClient } from '@/lib/esologs/client';
 import { resolveSpecForActor } from '@/lib/rotation/specs';
 import { analyzeRotation } from '@/lib/rotation/analyzer';
-import { generateFullDiscordReport, BossFightContext } from '@/lib/rotation/boss-feedback';
+import {
+  generateFullDiscordReport,
+  generateOverallSummaryOnly,
+  generateBossItemBreakdown,
+  computeBossTrialComparison,
+  computeTrialAverages,
+  BossFightContext
+} from '@/lib/rotation/boss-feedback';
 import { RotationAnalysisResult } from '@/types/rotation';
 
 export interface BossSummaryRequestOptions {
@@ -379,6 +386,10 @@ export async function handleBossSummary(
       });
     }
 
+    const specClass = spec.class.toLowerCase();
+    const trialAverages = computeTrialAverages(items, specClass);
+    const overallSummaryText = generateOverallSummaryOnly(items, specClass);
+
     return NextResponse.json({
       success: true,
       reportId: cleanReportId,
@@ -397,6 +408,7 @@ export async function handleBossSummary(
       bossCount: items.length,
       totalCandidateBossFights: candidateBossFights.length,
       killsOnly: killsOnlyApplied,
+      overallSummary: overallSummaryText,
       reportText: discordText,
       discordTextWithExplanations,
       discordTextWithoutExplanations,
@@ -404,7 +416,9 @@ export async function handleBossSummary(
         id: i.fight.id,
         name: i.fight.name,
         kill: i.fight.kill,
-        durationSec: i.fight.durationSec
+        durationSec: i.fight.durationSec,
+        comparisonNote: computeBossTrialComparison(i, trialAverages, specClass, items.length),
+        breakdownText: generateBossItemBreakdown(i, items, specClass)
       }))
     });
   } catch (err: any) {

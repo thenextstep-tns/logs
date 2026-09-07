@@ -481,9 +481,28 @@ function generateOverallSummary(
 }
 
 /**
+ * Returns just the Overall Summary block (Header, Scope, Assessment, What went well, Key leaks).
+ */
+export function generateOverallSummaryOnly(
+  items: Array<{ fight: BossFightContext; result: RotationAnalysisResult }>,
+  specClass: string
+): string {
+  if (!items || items.length === 0) return '';
+  const firstResult = items[0].result;
+  const actorName = firstResult.fightMeta.actorName;
+  const specName = firstResult.spec.name;
+  const allKills = items.every(i => i.fight.kill);
+  const scopeText = allKills
+    ? `*Scope: Only looking at kill pulls (${items.length} boss${items.length === 1 ? '' : 'es'})*`
+    : `*Scope: Across all pulls (${items.length} boss fight${items.length === 1 ? '' : 's'})*`;
+
+  return `# Rotation Performance Summary — ${actorName} (${specName})\n${scopeText}\n\n${generateOverallSummary(items, specClass)}`;
+}
+
+/**
  * Natural 1-2 sentence human explanations for key skills across specs.
  */
-function generateKeySkillMechanics(specClass: string, specId?: string): string {
+export function generateKeySkillMechanics(specClass: string, specId?: string): string {
   const specKey =
     specId && KEY_SKILL_EXPLANATIONS[specId]
       ? specId
@@ -498,6 +517,348 @@ function generateKeySkillMechanics(specClass: string, specId?: string): string {
   return text.trimEnd();
 }
 
+export interface TrialAverages {
+  avgLaHitRate: number;
+  avgActiveUptime: number;
+  avgHeatShock?: number;
+  avgIgneous?: number;
+  avgFragImmediate?: number;
+  avgBeamOptimal?: number;
+  avgTriplets?: number;
+}
+
+export function computeTrialAverages(
+  items: Array<{ fight: BossFightContext; result: RotationAnalysisResult }>,
+  specClass: string
+): TrialAverages {
+  const totalConnected = items.reduce((acc, i) => acc + (i.result.idleStats.connectedLAsCount ?? 0), 0);
+  const totalEmpty = items.reduce((acc, i) => acc + (i.result.idleStats.emptyLAsCount ?? 0), 0);
+  const totalLAs = totalConnected + totalEmpty;
+  const avgLaHitRate = totalLAs > 0 ? (totalConnected / totalLAs) * 100 : 100;
+
+  const totalActive = items.reduce((acc, i) => acc + i.result.idleStats.totalActiveSec, 0);
+  const totalIdle = items.reduce((acc, i) => acc + i.result.idleStats.totalIdleSec, 0);
+  const avgActiveUptime = (totalActive + totalIdle) > 0 ? (totalActive / (totalActive + totalIdle)) * 100 : 100;
+
+  let avgHeatShock: number | undefined = undefined;
+  let avgIgneous: number | undefined = undefined;
+  let avgFragImmediate: number | undefined = undefined;
+  let avgBeamOptimal: number | undefined = undefined;
+  let avgTriplets: number | undefined = undefined;
+
+  if (specClass === 'dragonknight' || specClass === 'dk') {
+    const mfItems = items.filter(i => i.result.dkStats?.magmaFist);
+    if (mfItems.length > 0) {
+      avgHeatShock =
+        mfItems.reduce((acc, i) => acc + (i.result.dkStats?.magmaFist?.heatShockThreeStackUptimePct || 0), 0) /
+        mfItems.length;
+    }
+    const ignItems = items.filter(i => i.result.dkStats?.igneousWeapons);
+    if (ignItems.length > 0) {
+      avgIgneous =
+        ignItems.reduce((acc, i) => acc + (i.result.dkStats?.igneousWeapons?.uptimePct || 0), 0) /
+        ignItems.length;
+    }
+  } else if (specClass === 'sorcerer') {
+    const fragItems = items.filter(i => i.result.sorcStats?.totalFragProcsGained);
+    if (fragItems.length > 0) {
+      avgFragImmediate =
+        fragItems.reduce((acc, i) => acc + (i.result.sorcStats?.fragProcImmediateCastPct || 0), 0) /
+        fragItems.length;
+    }
+  } else if (specClass === 'arcanist') {
+    const beamItems = items.filter(i => i.result.cruxStats?.totalBeams);
+    if (beamItems.length > 0) {
+      avgBeamOptimal =
+        beamItems.reduce((acc, i) => acc + (i.result.cruxStats?.optimalPct || 0), 0) /
+        beamItems.length;
+    }
+  } else if (specClass === 'necromancer') {
+    const necroItems = items.filter(i => i.result.totalCycles > 0);
+    if (necroItems.length > 0) {
+      avgTriplets =
+        necroItems.reduce((acc, i) => acc + (i.result.cadenceStats?.perfectTripletsPct || 0), 0) /
+        necroItems.length;
+    }
+  }
+
+  return {
+    avgLaHitRate,
+    avgActiveUptime,
+    avgHeatShock,
+    avgIgneous,
+    avgFragImmediate,
+    avgBeamOptimal,
+    avgTriplets
+  };
+}
+
+export function computeBossTrialComparison(
+  item: { fight: BossFightContext; result: RotationAnalysisResult },
+  averages: TrialAverages,
+  specClass: string,
+  bossCount: number
+): string {
+  if (bossCount <= 1) return '';
+
+  const bossLa = item.result.idleStats.laHitRatePct ?? 100;
+  const bossActive = item.result.idleStats.activeUptimePct ?? 100;
+  const laDiff = bossLa - averages.avgLaHitRate;
+  const activeDiff = bossActive - averages.avgActiveUptime;
+
+  const points: string[] = [];
+  let score = 0;
+
+  // Active uptime
+  if (activeDiff >= 3.5) {
+    points.push(`active uptime held at ${bossActive}% (+${activeDiff.toFixed(1)}% vs trial avg)`);
+    score += 2;
+  } else if (activeDiff <= -3.5) {
+    points.push(`active uptime dropped to ${bossActive}% (${activeDiff.toFixed(1)}% vs trial avg) with ${item.result.idleStats.totalIdleSec}s idle`);
+    score -= 2;
+  }
+
+  // Light attacks
+  if (laDiff >= 3.0 && bossLa >= 88) {
+    points.push(`cleaner LA accuracy at ${bossLa}% (+${laDiff.toFixed(1)}% vs avg)`);
+    score += 1;
+  } else if (laDiff <= -4.0) {
+    points.push(`LA hit rate dropped to ${bossLa}% (${laDiff.toFixed(1)}% vs avg)`);
+    score -= 1;
+  }
+
+  // Spec mechanics
+  if (specClass === 'dragonknight' || specClass === 'dk') {
+    const dk = item.result.dkStats;
+    if (dk?.magmaFist && averages.avgHeatShock !== undefined) {
+      const hsDiff = dk.magmaFist.heatShockThreeStackUptimePct - averages.avgHeatShock;
+      if (hsDiff >= 6) {
+        points.push(`3-stack Heat Shock held higher at ${dk.magmaFist.heatShockThreeStackUptimePct}% (+${hsDiff.toFixed(0)}% vs avg)`);
+        score += 2;
+      } else if (hsDiff <= -6 || dk.magmaFist.droppedRefreshes >= 5) {
+        points.push(`Heat Shock dropped ${dk.magmaFist.droppedRefreshes} times (${dk.magmaFist.heatShockThreeStackUptimePct}% vs ${averages.avgHeatShock.toFixed(0)}% avg)`);
+        score -= 2;
+      }
+    }
+    if (dk?.igneousWeapons && averages.avgIgneous !== undefined) {
+      const ignDiff = dk.igneousWeapons.uptimePct - averages.avgIgneous;
+      if (ignDiff >= 6) {
+        points.push(`Igneous Weapons stayed up at ${dk.igneousWeapons.uptimePct}% (+${ignDiff.toFixed(0)}% vs avg)`);
+        score += 1;
+      } else if (ignDiff <= -6) {
+        points.push(`Igneous Weapons fell to ${dk.igneousWeapons.uptimePct}% (${ignDiff.toFixed(0)}% vs avg)`);
+        score -= 1;
+      }
+    }
+  } else if (specClass === 'sorcerer') {
+    const s = item.result.sorcStats;
+    if (s && averages.avgFragImmediate !== undefined) {
+      const fragDiff = (s.fragProcImmediateCastPct ?? 100) - averages.avgFragImmediate;
+      if (fragDiff >= 8) {
+        points.push(`instant Frag reactions were sharper at ${s.fragProcImmediateCastPct}% (+${fragDiff.toFixed(0)}% vs avg)`);
+        score += 2;
+      } else if (fragDiff <= -8) {
+        points.push(`delayed Frag procs (${s.fragProcImmediateCastPct}% vs ${averages.avgFragImmediate.toFixed(0)}% avg)`);
+        score -= 2;
+      }
+    }
+  } else if (specClass === 'arcanist') {
+    const c = item.result.cruxStats;
+    if (c && averages.avgBeamOptimal !== undefined) {
+      const optDiff = c.optimalPct - averages.avgBeamOptimal;
+      if (optDiff >= 8) {
+        points.push(`Fatecarver execution was cleaner at ${c.optimalPct}% full 3-Crux channels (+${optDiff.toFixed(0)}% vs avg)`);
+        score += 2;
+      } else if (optDiff <= -8) {
+        points.push(`more interrupted beams (${c.optimalPct}% vs ${averages.avgBeamOptimal.toFixed(0)}% avg)`);
+        score -= 2;
+      }
+    }
+  } else if (specClass === 'necromancer') {
+    const n = item.result.cadenceStats;
+    if (n && averages.avgTriplets !== undefined) {
+      const tripDiff = n.perfectTripletsPct - averages.avgTriplets;
+      if (tripDiff >= 8) {
+        points.push(`Blastbones cadence was tighter at ${n.perfectTripletsPct}% (+${tripDiff.toFixed(0)}% vs avg)`);
+        score += 2;
+      } else if (tripDiff <= -8) {
+        points.push(`cadence was delayed (${n.perfectTripletsPct}% vs ${averages.avgTriplets.toFixed(0)}% avg)`);
+        score -= 2;
+      }
+    }
+  }
+
+  const details = points.length > 0 ? ` (${points.join(', ')})` : '';
+  if (score >= 2) {
+    return `*This boss went better than other bosses in this trial${details}.*`;
+  } else if (score <= -2) {
+    return `*This boss was more turbulent than other bosses in this trial${details}.*`;
+  } else {
+    return `*Consistent with your trial average${details}.*`;
+  }
+}
+
+export function formatBossStatsLines(
+  item: { fight: BossFightContext; result: RotationAnalysisResult },
+  specClass: string
+): string[] {
+  const lines: string[] = [];
+
+  if (specClass === 'sorcerer' && item.result.sorcStats) {
+    const s = item.result.sorcStats;
+
+    if (s.hasShatteredPathsSignet) {
+      if (s.ultimateBelow133Count && s.ultimateBelow133Count > 0) {
+        lines.push(
+          `- **Shattered Paths**: Dropped below 133 (Min: ${s.minUltimateValue}, ${s.ultimateBelow133Count} sub-133 samples)`
+        );
+      } else {
+        lines.push(`- **Shattered Paths**: Maintained ≥ 133`);
+      }
+    }
+
+    const hardcasts = s.hardcastFragsCasts > 0 ? ` | ${s.hardcastFragsCasts} hardcasts` : '';
+    lines.push(
+      `- **Frag Procs (Prio #1)**: ${s.fragProcImmediateCastPct ?? 100}% Immediate (${s.immediateFragProcsCount}/${s.totalFragProcsGained} immediate, ${s.delayedFragProcsCount} delayed by ${s.interveningSkillsDuringProcCount} GCDs, ${s.expiredFragProcsCount} expired)${hardcasts}`
+    );
+
+    const armPct =
+      s.totalArmamentsCasts > 0
+        ? Math.round((s.optimalArmamentsCasts / s.totalArmamentsCasts) * 100)
+        : 100;
+    lines.push(
+      `- **Bound Armaments**: ${armPct}% Optimal (${s.optimalArmamentsCasts}/${s.totalArmamentsCasts} at 4+, avg ${s.avgStacksAtCast} stacks)`
+    );
+
+    lines.push(
+      `- **Status Knife**: ${s.optimalKnifeRefreshes}/${s.totalKnifeCasts} on-time (${s.droppedKnifeCount} dropped, ${s.prematureKnifeCount} early, avg ${s.avgKnifeIntervalSec}s)`
+    );
+
+    lines.push(
+      `- **Haunting Curse**: ${s.optimalCurseRefreshes}/${s.totalCurseCasts} intact (${s.recastBeforeSecondExplosionCount} clipped, avg ${s.avgCurseIntervalSec}s)`
+    );
+
+    lines.push(
+      `- **Active Uptime & Idle**: ${item.result.idleStats.activeUptimePct}% active (${item.result.idleStats.totalIdleSec}s idle downtime)`
+    );
+
+    lines.push(
+      `- **Light Attacks**: ${item.result.idleStats.laHitRatePct ?? 0}% hit rate (${item.result.idleStats.connectedLAsCount} connected / ${item.result.idleStats.emptyLAsCount} empty)`
+    );
+  } else if (specClass === 'arcanist' && item.result.cruxStats) {
+    const c = item.result.cruxStats;
+
+    const cutText = c.interruptedBeams > 0 ? ` (${c.interruptedBeams} interrupted)` : '';
+    lines.push(
+      `- **Fatecarver Execution**: ${c.optimalPct}% Optimal — ${c.optimalBeams} / ${c.totalBeams} 3-Crux full channels${cutText}`
+    );
+
+    lines.push(
+      `- **Crux Usage**: ${c.threeCruxPct}% at 3 Crux (${c.underCruxBeams} cast at < 3 Crux)`
+    );
+
+    lines.push(
+      `- **Beam Channel Uptime**: ${c.beamUptimePct}% (${c.totalBeamChannelSec}s of ${item.fight.durationSec}s fight)`
+    );
+
+    lines.push(
+      `- **Active Uptime & Idle**: ${item.result.idleStats.activeUptimePct}% active (${item.result.idleStats.totalIdleSec}s idle downtime)`
+    );
+
+    lines.push(
+      `- **Light Attacks**: ${item.result.idleStats.laHitRatePct ?? 0}% hit rate (${item.result.idleStats.connectedLAsCount} connected / ${item.result.idleStats.emptyLAsCount} empty)`
+    );
+  } else if ((specClass === 'dragonknight' || specClass === 'dk') && item.result.dkStats) {
+    const dk = item.result.dkStats;
+
+    if (dk.magmaFist) {
+      lines.push(
+        `- **Heat Shock (Magma Fist)**: ${dk.magmaFist.heatShockThreeStackUptimePct}% 3-stack uptime (${dk.magmaFist.optimalRefreshes} on-time, ${dk.magmaFist.earlyRefreshes} early, ${dk.magmaFist.droppedRefreshes} dropped, avg ${dk.magmaFist.avgIntervalSec}s)`
+      );
+    }
+
+    if (dk.whipMiniGame && dk.whipMiniGame.morph === 'flame_lash') {
+      const w = dk.whipMiniGame;
+      const delayStr = w.reactionDelayMs !== undefined ? ` | ${w.reactionDelayMs}ms avg reaction` : '';
+      const droppedStr =
+        w.expiredDotsDuringLash && w.expiredDotsDuringLash.length > 0
+          ? ` | ${w.expiredDotsDuringLash.length} DoTs dropped`
+          : '';
+      const prioStr =
+        w.priorityViolationsCount && w.priorityViolationsCount > 0
+          ? ` | ${w.priorityViolationsCount} prio violations`
+          : '';
+      lines.push(
+        `- **Flame Lash (Off-Balance)**: ${w.castsInOffBalance} casts in ${w.offBalanceWindowsCount ?? 0} OB windows${delayStr}${droppedStr}${prioStr}`
+      );
+    } else if (dk.whipMiniGame && dk.whipMiniGame.morph === 'molten_whip') {
+      const w = dk.whipMiniGame;
+      lines.push(
+        `- **Molten Whip**: ${w.seethingFuryThreeStackPct}% at 3 stacks (${w.castsAtThreeStacks}/${w.totalCasts} at 3 stacks for +99% dmg)`
+      );
+    }
+
+    if (dk.tankDebuffs) {
+      const td = dk.tankDebuffs;
+      lines.push(
+        `- **Tank Debuffs**: Taunt ${td.tauntUptimePct}% | Major Breach ${td.majorBreachUptimePct}% | Crusher ${td.crusherUptimePct}% | Maim ${td.maimUptimePct}%`
+      );
+    }
+
+    if (dk.igneousWeapons) {
+      lines.push(
+        `- **Igneous Weapons**: ${dk.igneousWeapons.uptimePct}% uptime (${dk.igneousWeapons.totalCasts} casts, ${dk.igneousWeapons.prematureRecasts} early)`
+      );
+    }
+
+    if (dk.statusKnife) {
+      lines.push(
+        `- **Status Knife**: ${dk.statusKnife.optimalRefreshes}/${dk.statusKnife.totalCasts} on-time (${dk.statusKnife.droppedRefreshes} dropped, ${dk.statusKnife.prematureRefreshes} early, avg ${dk.statusKnife.avgIntervalSec}s)`
+      );
+    }
+
+    lines.push(
+      `- **Active Uptime & Idle**: ${item.result.idleStats.activeUptimePct}% active (${item.result.idleStats.totalIdleSec}s idle downtime)`
+    );
+
+    lines.push(
+      `- **Light Attacks**: ${item.result.idleStats.laHitRatePct ?? 0}% hit rate (${item.result.idleStats.connectedLAsCount} connected / ${item.result.idleStats.emptyLAsCount} empty)`
+    );
+  } else {
+    lines.push(
+      `- **Active Uptime & Idle**: ${item.result.idleStats.activeUptimePct}% active (${item.result.idleStats.totalIdleSec}s idle downtime)`
+    );
+    lines.push(
+      `- **Light Attacks**: ${item.result.idleStats.laHitRatePct ?? 0}% hit rate (${item.result.idleStats.connectedLAsCount} connected / ${item.result.idleStats.emptyLAsCount} empty)`
+    );
+    lines.push(
+      `- **GCD APM**: ${Math.round(
+        (item.result.totalGCDCasts / Math.max(1, item.fight.durationSec)) * 60
+      )} casts/min (${item.result.idleStats.averageGapMs}ms avg gap)`
+    );
+  }
+
+  return lines;
+}
+
+/**
+ * Returns a single boss's breakdown text including comparison with trial averages.
+ */
+export function generateBossItemBreakdown(
+  item: { fight: BossFightContext; result: RotationAnalysisResult },
+  allItems: Array<{ fight: BossFightContext; result: RotationAnalysisResult }>,
+  specClass: string
+): string {
+  const averages = computeTrialAverages(allItems, specClass);
+  const lines: string[] = [`## ${item.fight.name}`];
+  const compNote = computeBossTrialComparison(item, averages, specClass, allItems.length);
+  if (compNote) {
+    lines.push(compNote);
+  }
+  lines.push(...formatBossStatsLines(item, specClass));
+  return lines.join('\n');
+}
+
 /**
  * Pull-by-pull boss stats without repetitive headers or redundant explanations.
  */
@@ -506,6 +867,7 @@ function generateBossBreakdown(
   specClass: string,
   allKills: boolean
 ): string {
+  const averages = computeTrialAverages(items, specClass);
   // Track pull occurrences if in all-pulls mode
   const fightNameCounts: { [name: string]: number } = {};
   for (const item of items) {
@@ -528,137 +890,11 @@ function generateBossBreakdown(
     }
 
     const lines: string[] = [`## ${headerTitle}`];
-
-    if (specClass === 'sorcerer' && item.result.sorcStats) {
-      const s = item.result.sorcStats;
-
-      if (s.hasShatteredPathsSignet) {
-        if (s.ultimateBelow133Count && s.ultimateBelow133Count > 0) {
-          lines.push(
-            `- **Shattered Paths**: Dropped below 133 (Min: ${s.minUltimateValue}, ${s.ultimateBelow133Count} sub-133 samples)`
-          );
-        } else {
-          lines.push(`- **Shattered Paths**: Maintained ≥ 133`);
-        }
-      }
-
-      const hardcasts = s.hardcastFragsCasts > 0 ? ` | ${s.hardcastFragsCasts} hardcasts` : '';
-      lines.push(
-        `- **Frag Procs (Prio #1)**: ${s.fragProcImmediateCastPct ?? 100}% Immediate (${s.immediateFragProcsCount}/${s.totalFragProcsGained} immediate, ${s.delayedFragProcsCount} delayed by ${s.interveningSkillsDuringProcCount} GCDs, ${s.expiredFragProcsCount} expired)${hardcasts}`
-      );
-
-      const armPct =
-        s.totalArmamentsCasts > 0
-          ? Math.round((s.optimalArmamentsCasts / s.totalArmamentsCasts) * 100)
-          : 100;
-      lines.push(
-        `- **Bound Armaments**: ${armPct}% Optimal (${s.optimalArmamentsCasts}/${s.totalArmamentsCasts} at 4+, avg ${s.avgStacksAtCast} stacks)`
-      );
-
-      lines.push(
-        `- **Status Knife**: ${s.optimalKnifeRefreshes}/${s.totalKnifeCasts} on-time (${s.droppedKnifeCount} dropped, ${s.prematureKnifeCount} early, avg ${s.avgKnifeIntervalSec}s)`
-      );
-
-      lines.push(
-        `- **Haunting Curse**: ${s.optimalCurseRefreshes}/${s.totalCurseCasts} intact (${s.recastBeforeSecondExplosionCount} clipped, avg ${s.avgCurseIntervalSec}s)`
-      );
-
-      lines.push(
-        `- **Light Attacks**: ${item.result.idleStats.laHitRatePct ?? 0}% hit rate (${item.result.idleStats.connectedLAsCount} hit / ${item.result.idleStats.emptyLAsCount} empty)`
-      );
-    } else if (specClass === 'arcanist' && item.result.cruxStats) {
-      const c = item.result.cruxStats;
-
-      const cutText = c.interruptedBeams > 0 ? ` (${c.interruptedBeams} interrupted)` : '';
-      lines.push(
-        `- **Fatecarver Execution**: ${c.optimalPct}% Optimal — ${c.optimalBeams} / ${c.totalBeams} 3-Crux full channels${cutText}`
-      );
-
-      lines.push(
-        `- **Crux Usage**: ${c.threeCruxPct}% at 3 Crux (${c.underCruxBeams} cast at < 3 Crux)`
-      );
-
-      lines.push(
-        `- **Beam Channel Uptime**: ${c.beamUptimePct}% (${c.totalBeamChannelSec}s of ${item.fight.durationSec}s fight)`
-      );
-
-      lines.push(
-        `- **Active Uptime & Idle**: ${item.result.idleStats.activeUptimePct}% active (${item.result.idleStats.totalIdleSec}s idle downtime)`
-      );
-
-      lines.push(
-        `- **Light Attacks**: ${item.result.idleStats.laHitRatePct ?? 0}% hit rate (${item.result.idleStats.connectedLAsCount} connected / ${item.result.idleStats.emptyLAsCount} empty)`
-      );
-    } else if ((specClass === 'dragonknight' || specClass === 'dk') && item.result.dkStats) {
-      const dk = item.result.dkStats;
-
-      if (dk.magmaFist) {
-        lines.push(
-          `- **Heat Shock (Magma Fist)**: ${dk.magmaFist.heatShockThreeStackUptimePct}% 3-stack uptime (${dk.magmaFist.optimalRefreshes} on-time, ${dk.magmaFist.earlyRefreshes} early, ${dk.magmaFist.droppedRefreshes} dropped, avg ${dk.magmaFist.avgIntervalSec}s)`
-        );
-      }
-
-      if (dk.whipMiniGame && dk.whipMiniGame.morph === 'flame_lash') {
-        const w = dk.whipMiniGame;
-        const delayStr = w.reactionDelayMs !== undefined ? ` | ${w.reactionDelayMs}ms avg reaction` : '';
-        const droppedStr =
-          w.expiredDotsDuringLash && w.expiredDotsDuringLash.length > 0
-            ? ` | ${w.expiredDotsDuringLash.length} DoTs dropped`
-            : '';
-        const prioStr =
-          w.priorityViolationsCount && w.priorityViolationsCount > 0
-            ? ` | ${w.priorityViolationsCount} prio violations`
-            : '';
-        lines.push(
-          `- **Flame Lash (Off-Balance)**: ${w.castsInOffBalance} casts in ${w.offBalanceWindowsCount ?? 0} OB windows${delayStr}${droppedStr}${prioStr}`
-        );
-      } else if (dk.whipMiniGame && dk.whipMiniGame.morph === 'molten_whip') {
-        const w = dk.whipMiniGame;
-        lines.push(
-          `- **Molten Whip**: ${w.seethingFuryThreeStackPct}% at 3 stacks (${w.castsAtThreeStacks}/${w.totalCasts} at 3 stacks for +99% dmg)`
-        );
-      }
-
-      if (dk.tankDebuffs) {
-        const td = dk.tankDebuffs;
-        lines.push(
-          `- **Tank Debuffs**: Taunt ${td.tauntUptimePct}% | Major Breach ${td.majorBreachUptimePct}% | Crusher ${td.crusherUptimePct}% | Maim ${td.maimUptimePct}%`
-        );
-      }
-
-      if (dk.igneousWeapons) {
-        lines.push(
-          `- **Igneous Weapons**: ${dk.igneousWeapons.uptimePct}% uptime (${dk.igneousWeapons.totalCasts} casts, ${dk.igneousWeapons.prematureRecasts} early)`
-        );
-      }
-
-      if (dk.statusKnife) {
-        lines.push(
-          `- **Status Knife**: ${dk.statusKnife.optimalRefreshes}/${dk.statusKnife.totalCasts} on-time (${dk.statusKnife.droppedRefreshes} dropped, ${dk.statusKnife.prematureRefreshes} early, avg ${dk.statusKnife.avgIntervalSec}s)`
-        );
-      }
-
-      lines.push(
-        `- **Active Uptime & Idle**: ${item.result.idleStats.activeUptimePct}% active (${item.result.idleStats.totalIdleSec}s idle downtime)`
-      );
-
-      lines.push(
-        `- **Light Attacks**: ${item.result.idleStats.laHitRatePct ?? 0}% hit rate (${item.result.idleStats.connectedLAsCount} connected / ${item.result.idleStats.emptyLAsCount} empty)`
-      );
-    } else {
-      lines.push(
-        `- **Active Uptime & Idle**: ${item.result.idleStats.activeUptimePct}% active (${item.result.idleStats.totalIdleSec}s idle downtime)`
-      );
-      lines.push(
-        `- **Light Attacks**: ${item.result.idleStats.laHitRatePct ?? 0}% hit rate (${item.result.idleStats.connectedLAsCount} connected / ${item.result.idleStats.emptyLAsCount} empty)`
-      );
-      lines.push(
-        `- **GCD APM**: ${Math.round(
-          (item.result.totalGCDCasts / Math.max(1, item.fight.durationSec)) * 60
-        )} casts/min (${item.result.idleStats.averageGapMs}ms avg gap)`
-      );
+    const compNote = computeBossTrialComparison(item, averages, specClass, items.length);
+    if (compNote) {
+      lines.push(compNote);
     }
-
+    lines.push(...formatBossStatsLines(item, specClass));
     sections.push(lines.join('\n'));
   }
 
