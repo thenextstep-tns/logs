@@ -192,6 +192,7 @@ export class ESOLogsClient {
     zone: number;
     fights: Array<{ id: number; start_time: number; end_time: number; boss: number; name: string; kill?: boolean; bossPercentage?: number }>;
     friendlies?: Array<{ id: number; name: string; type: string; icon: string; displayName?: string; fights: Array<{ id: number }> }>;
+    enemies?: Array<{ id: number; name: string; type: string; icon?: string; fights?: Array<{ id: number; groups?: number; instances?: number }> }>;
   }> {
     return this.fetchJson(`report/fights/${reportId}`);
   }
@@ -493,6 +494,107 @@ export class ESOLogsClient {
       return res.series[0].data;
     }
     return [];
+  }
+
+  /**
+   * Fetches damage events on the primary boss target to detect static HP (invulnerability/immune phases).
+   */
+  async getBossInvulnerabilityWindows(
+    reportId: string,
+    startTime: number,
+    endTime: number,
+    bossEnemyId?: number
+  ): Promise<import('@/types/rotation').InvulnerabilityWindow[]> {
+    if (!bossEnemyId) return [];
+
+    try {
+      const res = await this.fetchJson<{
+        events?: Array<{
+          timestamp: number;
+          targetResources?: { hitPoints?: number; maxHitPoints?: number };
+        }>;
+      }>(`report/events/damage-done/${reportId}`, {
+        start: startTime,
+        end: endTime,
+        targetid: bossEnemyId
+      });
+
+      const events = (res?.events || []).filter(
+        e => e.targetResources?.hitPoints !== undefined && e.targetResources?.maxHitPoints
+      );
+
+      if (events.length === 0) return [];
+
+      const rawWindows: import('@/types/rotation').InvulnerabilityWindow[] = [];
+      const maxHp = events[0].targetResources!.maxHitPoints!;
+      let staticStartTs: number | null = null;
+      let lastHp = events[0].targetResources!.hitPoints!;
+      let lastTs = events[0].timestamp;
+
+      for (let i = 1; i < events.length; i++) {
+        const e = events[i];
+        const curHp = e.targetResources!.hitPoints!;
+        if (curHp === lastHp) {
+          if (staticStartTs === null) {
+            staticStartTs = events[i - 1].timestamp;
+          }
+        } else {
+          if (staticStartTs !== null) {
+            const duration = (lastTs - staticStartTs) / 1000;
+            if (duration >= 4.0) {
+              rawWindows.push({
+                startTs: staticStartTs,
+                endTs: lastTs,
+                startSec: Number(((staticStartTs - startTime) / 1000).toFixed(1)),
+                endSec: Number(((lastTs - startTime) / 1000).toFixed(1)),
+                durationSec: Number(duration.toFixed(1)),
+                hp: lastHp,
+                hpPct: Math.round((lastHp / maxHp) * 100)
+              });
+            }
+            staticStartTs = null;
+          }
+          lastHp = curHp;
+        }
+        lastTs = e.timestamp;
+      }
+
+      if (staticStartTs !== null) {
+        const duration = (lastTs - staticStartTs) / 1000;
+        if (duration >= 4.0) {
+          rawWindows.push({
+            startTs: staticStartTs,
+            endTs: lastTs,
+            startSec: Number(((staticStartTs - startTime) / 1000).toFixed(1)),
+            endSec: Number(((lastTs - startTime) / 1000).toFixed(1)),
+            durationSec: Number(duration.toFixed(1)),
+            hp: lastHp,
+            hpPct: Math.round((lastHp / maxHp) * 100)
+          });
+        }
+      }
+
+      if (rawWindows.length <= 1) return rawWindows;
+
+      // Merge adjacent static windows if separated by <= 2.5s
+      const merged: import('@/types/rotation').InvulnerabilityWindow[] = [rawWindows[0]];
+      for (let i = 1; i < rawWindows.length; i++) {
+        const prev = merged[merged.length - 1];
+        const curr = rawWindows[i];
+        if (curr.startSec - prev.endSec <= 2.5) {
+          prev.endTs = curr.endTs;
+          prev.endSec = curr.endSec;
+          prev.durationSec = Number((prev.endSec - prev.startSec).toFixed(1));
+        } else {
+          merged.push(curr);
+        }
+      }
+
+      return merged;
+    } catch (err) {
+      console.warn('Failed to detect boss invulnerability windows:', err);
+      return [];
+    }
   }
 }
 

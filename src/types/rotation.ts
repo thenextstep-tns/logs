@@ -127,6 +127,7 @@ export interface TripletCycle {
   zone: PerformanceZone;
   laWeaveCount: number;
   laWeavePct: number;
+  isInvulnPhase?: boolean;
   diagnostics: string[];
 }
 
@@ -424,6 +425,25 @@ export interface DKStats {
   }>;
 }
 
+export interface InvulnerabilityWindow {
+  startTs: number;
+  endTs: number;
+  startSec: number;
+  endSec: number;
+  durationSec: number;
+  hp: number;
+  hpPct: number;
+}
+
+export interface InvulnerabilityRampUpStats {
+  windowsCount: number;
+  totalImmuneSec: number;
+  reapplicationDelaysSec: number[];
+  avgReapplyDelaySec: number;
+  fastReapplicationsCount: number;
+  slowReapplicationsCount: number;
+}
+
 export interface RotationAnalysisResult {
   spec: {
     id: string;
@@ -454,6 +474,8 @@ export interface RotationAnalysisResult {
   sorcStats?: SorcStats;
   dkStats?: DKStats;
   dotUptimes?: DoTUptimeStat[];
+  invulnerabilityWindows?: InvulnerabilityWindow[];
+  invulnRampUpStats?: InvulnerabilityRampUpStats;
   nonStandardCyclesCount: number;
   totalCycles: number;
   totalGCDCasts: number;

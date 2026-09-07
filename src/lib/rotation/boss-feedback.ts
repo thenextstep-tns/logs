@@ -460,6 +460,29 @@ function generateOverallSummary(
     });
   }
 
+  const totalInvulnWindows = items.reduce(
+    (acc, i) => acc + (i.result.invulnRampUpStats?.windowsCount || 0),
+    0
+  );
+  if (totalInvulnWindows > 0) {
+    const allDelays = items.flatMap(
+      i => i.result.invulnRampUpStats?.reapplicationDelaysSec || []
+    );
+    const avgTrialRampUp =
+      allDelays.length > 0
+        ? Number((allDelays.reduce((a, b) => a + b, 0) / allDelays.length).toFixed(1))
+        : 0;
+    if (avgTrialRampUp <= 2.2 && allDelays.length > 0) {
+      coaching.strengths.push(
+        `Fast reapplication after boss shields/intermissions (~${avgTrialRampUp}s average ramp-up across the trial)`
+      );
+    } else if (avgTrialRampUp > 3.8 && allDelays.length > 0) {
+      coaching.leaks.push(
+        `Delayed reapplication after boss immune phases (~${avgTrialRampUp}s average delay before reconnecting DoTs and abilities)`
+      );
+    }
+  }
+
   summary += `${coaching.assessment}\n\n`;
 
   if (coaching.strengths.length > 0) {
@@ -525,6 +548,7 @@ export interface TrialAverages {
   avgFragImmediate?: number;
   avgBeamOptimal?: number;
   avgTriplets?: number;
+  avgInvulnRampUp?: number;
 }
 
 export function computeTrialAverages(
@@ -582,6 +606,14 @@ export function computeTrialAverages(
     }
   }
 
+  const allDelays = items.flatMap(
+    i => i.result.invulnRampUpStats?.reapplicationDelaysSec || []
+  );
+  const avgInvulnRampUp =
+    allDelays.length > 0
+      ? Number((allDelays.reduce((a, b) => a + b, 0) / allDelays.length).toFixed(1))
+      : undefined;
+
   return {
     avgLaHitRate,
     avgActiveUptime,
@@ -589,7 +621,8 @@ export function computeTrialAverages(
     avgIgneous,
     avgFragImmediate,
     avgBeamOptimal,
-    avgTriplets
+    avgTriplets,
+    avgInvulnRampUp
   };
 }
 
@@ -685,6 +718,22 @@ export function computeBossTrialComparison(
         points.push(`cadence was delayed (${n.perfectTripletsPct}% vs ${averages.avgTriplets.toFixed(0)}% avg)`);
         score -= 2;
       }
+    }
+  }
+
+  if (
+    item.result.invulnRampUpStats &&
+    item.result.invulnRampUpStats.windowsCount > 0 &&
+    averages.avgInvulnRampUp !== undefined
+  ) {
+    const bossRamp = item.result.invulnRampUpStats.avgReapplyDelaySec;
+    const rampDiff = bossRamp - averages.avgInvulnRampUp;
+    if (rampDiff <= -0.8 && bossRamp <= 2.2) {
+      points.push(`quicker reapplication after boss shields (~${bossRamp}s vs ${averages.avgInvulnRampUp}s avg)`);
+      score += 1;
+    } else if (rampDiff >= 1.2 && bossRamp >= 3.8) {
+      points.push(`slower reapplication after boss shields (~${bossRamp}s vs ${averages.avgInvulnRampUp}s avg)`);
+      score -= 1;
     }
   }
 
@@ -835,6 +884,13 @@ export function formatBossStatsLines(
       `- **GCD APM**: ${Math.round(
         (item.result.totalGCDCasts / Math.max(1, item.fight.durationSec)) * 60
       )} casts/min (${item.result.idleStats.averageGapMs}ms avg gap)`
+    );
+  }
+
+  if (item.result.invulnRampUpStats && item.result.invulnRampUpStats.windowsCount > 0) {
+    const r = item.result.invulnRampUpStats;
+    lines.push(
+      `- **Intermission Ramp-Up**: ~${r.avgReapplyDelaySec}s avg reapplication (${r.fastReapplicationsCount} quick / ${r.windowsCount} shield phase${r.windowsCount > 1 ? 's' : ''})`
     );
   }
 

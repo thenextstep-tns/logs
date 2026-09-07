@@ -19,13 +19,72 @@ import {
   SuboptimalBeamType,
   DoTUptimeStat,
   SorcStats,
-  DKStats
+  DKStats,
+  InvulnerabilityWindow,
+  InvulnerabilityRampUpStats
 } from '@/types/rotation';
 
 /**
  * Standard ESO Global Cooldown on active skills is 1000ms.
  */
 export const ESO_SKILL_GCD_MS = 1000;
+
+/**
+ * Checks if a timestamp in seconds falls inside any detected boss invulnerability window.
+ */
+export function isInsideInvulnWindow(
+  timeSec: number,
+  windows?: InvulnerabilityWindow[],
+  paddingSec: number = 1.0
+): boolean {
+  if (!windows || windows.length === 0) return false;
+  return windows.some(
+    w => timeSec >= w.startSec - 0.5 && timeSec <= w.endSec + paddingSec
+  );
+}
+
+/**
+ * Calculates ramp-up / reapplication latencies after boss invulnerability windows end.
+ */
+export function computeInvulnRampUpStats(
+  windows: InvulnerabilityWindow[],
+  casts: RawCastEvent[],
+  fightStartTs: number,
+  durationSec: number
+): InvulnerabilityRampUpStats {
+  const delays: number[] = [];
+  let fast = 0;
+  let slow = 0;
+
+  for (const w of windows) {
+    if (w.endSec >= durationSec - 3) continue;
+    const endTs = fightStartTs + w.endSec * 1000;
+    const nextCast = casts.find(
+      c => c.timestamp >= endTs && !c.ability?.name?.toLowerCase().includes('swap')
+    );
+    if (nextCast) {
+      const castSec = Number(((nextCast.timestamp - fightStartTs) / 1000).toFixed(1));
+      const delay = Math.max(0, Number((castSec - w.endSec).toFixed(1)));
+      delays.push(delay);
+      if (delay <= 2.5) fast++;
+      else if (delay > 4.0) slow++;
+    }
+  }
+
+  const totalImmuneSec = Number(windows.reduce((sum, w) => sum + w.durationSec, 0).toFixed(1));
+  const avgReapplyDelaySec = delays.length > 0
+    ? Number((delays.reduce((sum, d) => sum + d, 0) / delays.length).toFixed(1))
+    : 0;
+
+  return {
+    windowsCount: windows.length,
+    totalImmuneSec,
+    reapplicationDelaysSec: delays,
+    avgReapplyDelaySec,
+    fastReapplicationsCount: fast,
+    slowReapplicationsCount: slow
+  };
+}
 
 /**
  * Returns performance zone based on a score from 0 to 100
@@ -602,6 +661,7 @@ export function extractSorcStats(
     buffEvents?: RawBuffEvent[];
     buffTable?: Array<{ name: string; guid: number; totalUptime: number; type?: number }>;
     ultimateSeries?: Array<[number, number]>;
+    invulnerabilityWindows?: InvulnerabilityWindow[];
   }
 ): SorcStats {
   const details: SorcStats['details'] = [];
@@ -722,17 +782,20 @@ export function extractSorcStats(
         });
       }
     } else {
-      expiredFragProcsCount++;
-      interveningSkillsDuringProcCount += intervening.length;
-      const skillNames =
-        intervening.length > 0
-          ? `cast ${intervening.map(c => c.ability.name).join(', ')}`
-          : 'no skills cast';
-      details.push({
-        timeSec: procStartSec,
-        description: `Crystal Fragments Proc expired after ${((w.end - w.start) / 1000).toFixed(1)}s without being cast (Wasted Proc! ${skillNames}).`,
-        severity: 'error'
-      });
+      const duringInvuln = isInsideInvulnWindow(procStartSec, options?.invulnerabilityWindows);
+      if (!duringInvuln) {
+        expiredFragProcsCount++;
+        interveningSkillsDuringProcCount += intervening.length;
+        const skillNames =
+          intervening.length > 0
+            ? `cast ${intervening.map(c => c.ability.name).join(', ')}`
+            : 'no skills cast';
+        details.push({
+          timeSec: procStartSec,
+          description: `Crystal Fragments Proc expired after ${((w.end - w.start) / 1000).toFixed(1)}s without being cast (Wasted Proc! ${skillNames}).`,
+          severity: 'error'
+        });
+      }
     }
   }
 
@@ -759,32 +822,24 @@ export function extractSorcStats(
 
   for (const ac of armCasts) {
     const timeSec = Number(((ac.timestamp - fightStartTs) / 1000).toFixed(1));
-    const priorEvents = armBuffs.filter(b => b.timestamp <= ac.timestamp + 100);
-    let stacksAtCast = 0;
-    if (priorEvents.length > 0) {
-      for (let i = priorEvents.length - 1; i >= 0; i--) {
-        const ev = priorEvents[i];
-        if (ev.type === 'applybuffstack' && (ev as any).stack) {
-          stacksAtCast = (ev as any).stack;
-          break;
-        } else if (ev.type === 'removebuffstack' && (ev as any).stack) {
-          stacksAtCast = (ev as any).stack;
-          break;
-        } else if (ev.type === 'applybuff') {
-          stacksAtCast = 1;
-          break;
-        }
-      }
+    const priorBuffEvents = armBuffs.filter(b => b.timestamp <= ac.timestamp + 50);
+    let currentStack = 0;
+
+    for (const b of priorBuffEvents) {
+      if (b.timestamp >= ac.timestamp && b.type === 'removebuff') continue;
+      if (b.type === 'applybuff') currentStack = 1;
+      else if (b.type === 'applybuffstack' && b.stack) currentStack = b.stack;
+      else if (b.type === 'removebuff') currentStack = 0;
     }
 
-    totalStacksAtCast += stacksAtCast;
-    if (stacksAtCast >= 4) {
+    totalStacksAtCast += currentStack;
+    if (currentStack >= 4) {
       optimalArmamentsCasts++;
     } else {
       suboptimalArmamentsCasts++;
       details.push({
         timeSec,
-        description: `Bound Armaments cast at ${timeSec}s with only ${stacksAtCast} stack(s) (optimal: 4+ or 8 stacks).`,
+        description: `Bound Armaments cast at ${timeSec}s with only ${currentStack} stack(s) (optimal: 4+ or 8 stacks).`,
         severity: 'warning'
       });
     }
@@ -820,12 +875,16 @@ export function extractSorcStats(
         severity: 'info'
       });
     } else if (intervalSec > 10.5) {
-      droppedKnifeCount++;
-      details.push({
-        timeSec,
-        description: `Status Knife dropped for ${(intervalSec - 10).toFixed(1)}s at ${timeSec}s (${intervalSec.toFixed(1)}s interval; target: ~1s before 10s CD).`,
-        severity: 'warning'
-      });
+      if (!isInsideInvulnWindow(timeSec, options?.invulnerabilityWindows)) {
+        droppedKnifeCount++;
+        details.push({
+          timeSec,
+          description: `Status Knife dropped for ${(intervalSec - 10).toFixed(1)}s at ${timeSec}s (${intervalSec.toFixed(1)}s interval; target: ~1s before 10s CD).`,
+          severity: 'warning'
+        });
+      } else {
+        optimalKnifeRefreshes++;
+      }
     } else {
       optimalKnifeRefreshes++;
     }
@@ -998,6 +1057,7 @@ export function extractDKStats(
       }>;
     };
     ultimateSeries?: Array<[number, number]>;
+    invulnerabilityWindows?: InvulnerabilityWindow[];
   }
 ): DKStats {
   const details: DKStats['details'] = [];
@@ -1054,17 +1114,24 @@ export function extractDKStats(
           severity: 'info'
         });
       } else if (intervalSec > 7.2) {
-        droppedRefreshes++;
-        details.push({
-          timeSec,
-          description: `Heat Shock dropped! Recast Magma Fist after ${intervalSec}s at ${timeSec}s. Stacks fell from 3 to 1, losing group damage scaling.`,
-          severity: 'warning'
-        });
+        if (!isInsideInvulnWindow(timeSec, options?.invulnerabilityWindows)) {
+          droppedRefreshes++;
+          details.push({
+            timeSec,
+            description: `Heat Shock dropped! Recast Magma Fist after ${intervalSec}s at ${timeSec}s. Stacks fell from 3 to 1, losing group damage scaling.`,
+            severity: 'warning'
+          });
+        } else {
+          optimalRefreshes++;
+        }
       }
     }
 
     const intervalsCount = Math.max(1, magmaFistCasts.length - 1);
     const avgIntervalSec = Number((totalIntervalSec / intervalsCount).toFixed(1));
+
+    const totalImmuneSec = (options?.invulnerabilityWindows || []).reduce((sum, w) => sum + w.durationSec, 0);
+    const activeDurationMs = Math.max(1000, durationMs - totalImmuneSec * 1000);
 
     // Calculate Heat Shock debuff uptime and 3-stack uptime on main boss
     const heatShockAura = debuffAuras.find(
@@ -1073,7 +1140,7 @@ export function extractDKStats(
 
     let heatShockUptimePct = 0;
     if (heatShockAura && heatShockAura.totalUptime > 0) {
-      heatShockUptimePct = Math.min(100, Math.round((heatShockAura.totalUptime / durationMs) * 100));
+      heatShockUptimePct = Math.min(100, Math.round((heatShockAura.totalUptime / activeDurationMs) * 100));
     } else {
       // Estimate from casts (7.0s duration per cast)
       let activeMs = 0;
@@ -1086,7 +1153,7 @@ export function extractDKStats(
           lastCoveredEnd = end;
         }
       }
-      heatShockUptimePct = Math.min(100, Math.round((activeMs / durationMs) * 100));
+      heatShockUptimePct = Math.min(100, Math.round((activeMs / activeDurationMs) * 100));
     }
 
     // Calculate 3-stack Heat Shock duration
@@ -1113,7 +1180,7 @@ export function extractDKStats(
     if (threeStackStart !== null && lastCastTs > 0) {
       threeStackMs += Math.min(lastCastTs + 7000, fightEndTs) - threeStackStart;
     }
-    const heatShockThreeStackUptimePct = Math.min(100, Math.round((threeStackMs / durationMs) * 100));
+    const heatShockThreeStackUptimePct = Math.min(100, Math.round((threeStackMs / activeDurationMs) * 100));
 
     magmaFistStats = {
       hasMagmaFist: true,
@@ -1223,12 +1290,16 @@ export function extractDKStats(
           severity: 'info'
         });
       } else if (intervalSec > 10.5) {
-        droppedRefreshes++;
-        details.push({
-          timeSec,
-          description: `Status Knife debuff dropped at ${timeSec}s (${intervalSec}s interval). Refresh ~1s before 10s CD to maintain status effect uptime.`,
-          severity: 'warning'
-        });
+        if (!isInsideInvulnWindow(timeSec, options?.invulnerabilityWindows)) {
+          droppedRefreshes++;
+          details.push({
+            timeSec,
+            description: `Status Knife debuff dropped at ${timeSec}s (${intervalSec}s interval). Refresh ~1s before 10s CD to maintain status effect uptime.`,
+            severity: 'warning'
+          });
+        } else {
+          optimalRefreshes++;
+        }
       }
     }
 
@@ -1522,12 +1593,15 @@ export function extractDKStats(
   // --- 6. Tank Debuff Stats (Main Boss Only) ---
   let tankDebuffs: DKStats['tankDebuffs'] = undefined;
   if (specVariant === 'tank') {
+    const totalImmuneSec = (options?.invulnerabilityWindows || []).reduce((sum, w) => sum + w.durationSec, 0);
+    const activeDurationMs = Math.max(1000, durationMs - totalImmuneSec * 1000);
+
     const findAuraUptime = (names: string[], guids: number[]) => {
       const match = debuffAuras.find(
         a => guids.includes(a.guid) || names.some(n => a.name.toLowerCase().includes(n))
       );
       if (match && match.totalUptime > 0) {
-        return Math.min(100, Math.round((match.totalUptime / durationMs) * 100));
+        return Math.min(100, Math.round((match.totalUptime / activeDurationMs) * 100));
       }
       return 0;
     };
@@ -2029,7 +2103,8 @@ function evaluateSequence(
  */
 export function segmentTripletCycles(
   gcdCasts: NormalizedGCDCast[],
-  spec: RotationSpec
+  spec: RotationSpec,
+  invulnWindows?: InvulnerabilityWindow[]
 ): TripletCycle[] {
   const cycles: TripletCycle[] = [];
   const anchorToken = spec.keySkills.anchorSkill?.token || 'BB';
@@ -2055,11 +2130,19 @@ export function segmentTripletCycles(
     const s1 = interveningCasts[0];
     const s2 = interveningCasts[1];
 
+    const overlapsInvuln =
+      isInsideInvulnWindow(bbCast.timeSec, invulnWindows) ||
+      (interveningCasts.length > 0 &&
+        isInsideInvulnWindow(interveningCasts[interveningCasts.length - 1].timeSec, invulnWindows));
+
     // Calculate Cadence Score
     let cadenceScore = 100;
     const cadenceDiag: string[] = [];
 
-    if (cadenceCount === anchorTarget) {
+    if (overlapsInvuln) {
+      cadenceScore = 100;
+      cadenceDiag.push(`Invulnerability phase (${cadenceCount} skills)`);
+    } else if (cadenceCount === anchorTarget) {
       cadenceScore = 100;
       cadenceDiag.push(`Perfect ${anchorTarget}-skill ${anchorName} cadence`);
     } else if (cadenceCount === anchorTarget + 1) {
@@ -2107,9 +2190,9 @@ export function segmentTripletCycles(
         : 0;
 
     // Combined Cycle Score (50% cadence adherence, 50% sequence pattern quality)
-    // Idle penalty: if cycle idle time exceeds 1.5s, apply minor decay
+    // Idle penalty: if cycle idle time exceeds 1.5s, apply minor decay (exempt if invulnerability phase)
     let idlePenalty = 0;
-    if (cycleIdleSec > 2.0) {
+    if (!overlapsInvuln && cycleIdleSec > 2.0) {
       idlePenalty = Math.min(25, Math.round((cycleIdleSec - 2.0) * 5));
     }
 
@@ -2124,7 +2207,7 @@ export function segmentTripletCycles(
       ...interveningCasts.slice(0, 2).map(c => c.classification)
     ].join(' - ');
 
-    if (cycleIdleSec > 1.5) {
+    if (!overlapsInvuln && cycleIdleSec > 1.5) {
       cadenceDiag.push(`Contains ${cycleIdleSec}s inactive / idle time`);
     }
 
@@ -2148,6 +2231,7 @@ export function segmentTripletCycles(
       zone,
       laWeaveCount: weavedLACount,
       laWeavePct,
+      isInvulnPhase: overlapsInvuln,
       diagnostics: [...cadenceDiag, ...seqEval.diagnostics]
     });
   }
@@ -2353,11 +2437,15 @@ export function extractDynamicDoTUptimes(
   damageEvents: RawDamageEvent[] | undefined,
   buffTable: Array<{ name: string; guid: number; totalUptime: number; type?: number }> | undefined,
   castEvents: RawCastEvent[],
-  fightDurationSec: number
+  fightDurationSec: number,
+  invulnWindows?: InvulnerabilityWindow[]
 ): DoTUptimeStat[] {
   if (!damageEvents && !buffTable && (!castEvents || castEvents.length === 0)) {
     return [];
   }
+
+  const totalImmuneSec = (invulnWindows || []).reduce((sum, w) => sum + w.durationSec, 0);
+  const activeFightDurationSec = Math.max(1, fightDurationSec - totalImmuneSec);
 
   // Count player casts per ability name
   const castCounts = new Map<string, number>();
@@ -2447,7 +2535,7 @@ export function extractDynamicDoTUptimes(
     }
 
     const uptimeSec = Number((activeMs / 1000).toFixed(1));
-    const uptimePct = Number(Math.min(100, (activeMs / 1000 / fightDurationSec) * 100).toFixed(1));
+    const uptimePct = Number(Math.min(100, (activeMs / 1000 / activeFightDurationSec) * 100).toFixed(1));
 
     const originalEvent = damageEvents?.find(e => e.ability?.name.toLowerCase() === lowerName);
     const displayName = originalEvent?.ability?.name || lowerName;
@@ -2473,7 +2561,7 @@ export function extractDynamicDoTUptimes(
         const existing = dotMap.get(lowerAura)!;
         if (aura.totalUptime > existing.uptimeSec * 1000) {
           existing.uptimeSec = Number((aura.totalUptime / 1000).toFixed(1));
-          existing.uptimePct = Number(Math.min(100, (aura.totalUptime / 1000 / fightDurationSec) * 100).toFixed(1));
+          existing.uptimePct = Number(Math.min(100, (aura.totalUptime / 1000 / activeFightDurationSec) * 100).toFixed(1));
         }
         continue;
       }
@@ -2481,7 +2569,7 @@ export function extractDynamicDoTUptimes(
       const castCount = castCounts.get(lowerAura) || 0;
       if (castCount > 0 && aura.totalUptime > 0) {
         const uptimeSec = Number((aura.totalUptime / 1000).toFixed(1));
-        const uptimePct = Number(Math.min(100, (aura.totalUptime / 1000 / fightDurationSec) * 100).toFixed(1));
+        const uptimePct = Number(Math.min(100, (aura.totalUptime / 1000 / activeFightDurationSec) * 100).toFixed(1));
         if (uptimePct > 0) {
           dotMap.set(lowerAura, {
             name: aura.name,
@@ -2538,6 +2626,7 @@ export function analyzeRotation(
       }>;
     };
     ultimateSeries?: Array<[number, number]>;
+    invulnerabilityWindows?: InvulnerabilityWindow[];
   }
 ): RotationAnalysisResult {
   const durationSec = Math.max(1, (fightMeta.endTime - fightMeta.startTime) / 1000);
@@ -2604,7 +2693,7 @@ export function analyzeRotation(
   );
 
   // 3. Segment into triplet cycles anchored by spec anchor skill (e.g. Fatecarver or Blastbones)
-  const cycles = segmentTripletCycles(gcdCasts, spec);
+  const cycles = segmentTripletCycles(gcdCasts, spec, options?.invulnerabilityWindows);
 
   // 4. Compute Idle Time Statistics & Light Attack Hit Validation
   let totalIdleMs = 0;
@@ -3058,8 +3147,31 @@ export function analyzeRotation(
     options?.damageEvents,
     options?.buffTable,
     events,
-    durationSec
+    durationSec,
+    options?.invulnerabilityWindows
   );
+
+  let invulnRampUpStats: InvulnerabilityRampUpStats | undefined = undefined;
+  if (options?.invulnerabilityWindows && options.invulnerabilityWindows.length > 0) {
+    invulnRampUpStats = computeInvulnRampUpStats(
+      options.invulnerabilityWindows,
+      events,
+      fightMeta.startTime,
+      durationSec
+    );
+
+    if (invulnRampUpStats.windowsCount > 0 && invulnRampUpStats.reapplicationDelaysSec.length > 0) {
+      if (invulnRampUpStats.avgReapplyDelaySec <= 2.2) {
+        topFeedback.push(
+          `⚡ Fast Intermission Ramp-Up: ~${invulnRampUpStats.avgReapplyDelaySec}s average reapplication latency (${invulnRampUpStats.fastReapplicationsCount} immediate reconnects across ${invulnRampUpStats.windowsCount} boss shield/invulnerability phase${invulnRampUpStats.windowsCount > 1 ? 's' : ''}).`
+        );
+      } else if (invulnRampUpStats.avgReapplyDelaySec > 3.8) {
+        topFeedback.push(
+          `⏱️ Delayed Intermission Ramp-Up: ~${invulnRampUpStats.avgReapplyDelaySec}s average delay before reconnecting skills/damage after boss invulnerability phases.`
+        );
+      }
+    }
+  }
 
   return {
     spec: {
@@ -3089,6 +3201,8 @@ export function analyzeRotation(
     sorcStats,
     dkStats,
     dotUptimes,
+    invulnerabilityWindows: options?.invulnerabilityWindows,
+    invulnRampUpStats,
     nonStandardCyclesCount: nonStandardCount,
     totalCycles: cycles.length,
     totalGCDCasts: gcdCasts.length,

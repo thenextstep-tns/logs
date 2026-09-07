@@ -297,7 +297,27 @@ export async function handleBossSummary(
             );
           }
 
-          const resolvedFetches = await Promise.all(fetchPromises);
+          const bossNameClean = fight.name.split('/')[0].trim();
+          const bossEnemy = (reportData.enemies || []).find((e: any) =>
+            e.type === 'Boss' && (
+              (e.fights && e.fights.some((ef: any) => ef.id === fight.id)) ||
+              (e.name && e.name.toLowerCase().includes(bossNameClean.toLowerCase()))
+            )
+          );
+          const bossEnemyId = bossEnemy ? bossEnemy.id : undefined;
+
+          const invulnPromise = esologsClient.getBossInvulnerabilityWindows(
+            reportId,
+            fight.start_time,
+            fight.end_time,
+            bossEnemyId
+          );
+
+          const [resolvedFetches, invulnerabilityWindows] = await Promise.all([
+            Promise.all(fetchPromises),
+            invulnPromise
+          ]);
+
           const damageEvents = resolvedFetches[0];
           const buffTable = resolvedFetches[1];
           const buffEvents = resolvedFetches[2];
@@ -326,7 +346,8 @@ export async function handleBossSummary(
               damageEvents,
               buffTable,
               debuffTable,
-              ultimateSeries
+              ultimateSeries,
+              invulnerabilityWindows
             }
           );
 
