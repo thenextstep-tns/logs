@@ -41,16 +41,14 @@ export function generateFullDiscordReport(
   const showSummary =
     options.includeSummary !== undefined
       ? options.includeSummary
-      : options.includeSBI !== undefined
-      ? options.includeSBI
-      : options.includeExplanations !== false;
+      : true;
 
   const showKeySkills =
     options.includeKeySkills !== undefined
       ? options.includeKeySkills
-      : options.includeSBI !== undefined
-      ? options.includeSBI
-      : options.includeExplanations !== false;
+      : options.includeExplanations !== undefined
+      ? options.includeExplanations
+      : true;
 
   const firstResult = items[0].result;
   const actorName = firstResult.fightMeta.actorName;
@@ -372,6 +370,32 @@ function generateOverallSummary(
       0
     );
 
+    const totalKnifeCasts = items.reduce(
+      (acc, i) => acc + (i.result.dkStats?.statusKnife?.totalCasts || 0),
+      0
+    );
+    const optimalKnife = items.reduce(
+      (acc, i) => acc + (i.result.dkStats?.statusKnife?.optimalRefreshes || 0),
+      0
+    );
+    const earlyKnife = items.reduce(
+      (acc, i) => acc + (i.result.dkStats?.statusKnife?.prematureRefreshes || 0),
+      0
+    );
+    const droppedKnife = items.reduce(
+      (acc, i) => acc + (i.result.dkStats?.statusKnife?.droppedRefreshes || 0),
+      0
+    );
+    const totalKnifeIntervalWeighted = items.reduce(
+      (acc, i) =>
+        acc +
+        (i.result.dkStats?.statusKnife?.avgIntervalSec || 0) *
+          (i.result.dkStats?.statusKnife?.totalCasts || 0),
+      0
+    );
+    const avgKnifeInterval =
+      totalKnifeCasts > 0 ? totalKnifeIntervalWeighted / totalKnifeCasts : 0;
+
     const tauntUptimePct = Math.round(
       items.reduce((acc, i) => acc + (i.result.dkStats?.tankDebuffs?.tauntUptimePct || 0), 0) /
         Math.max(1, items.length)
@@ -412,6 +436,11 @@ function generateOverallSummary(
       earlyIgneousRecasts,
       droppedIgneousWindows,
       penalizedStandardSec,
+      totalKnifeCasts,
+      optimalKnife,
+      earlyKnife,
+      droppedKnife,
+      avgKnifeInterval,
       isTank,
       tauntUptimePct,
       majorBreachUptimePct,

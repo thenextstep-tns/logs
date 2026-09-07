@@ -12,6 +12,7 @@ export interface BossSummaryRequestOptions {
   actorId?: string | number;
   specId?: string;
   killsOnly?: boolean;
+  includeSummary?: boolean;
   includeKeySkills?: boolean;
   format?: 'text' | 'json';
 }
@@ -25,6 +26,7 @@ export async function handleBossSummary(
     let playerParam = options.player ?? options.actorId;
     const { specId, format = 'json' } = options;
     const killsOnly = options.killsOnly ?? true;
+    const includeSummary = options.includeSummary ?? true;
     const includeKeySkills = options.includeKeySkills ?? true;
 
     if (!rawReportId) {
@@ -348,16 +350,16 @@ export async function handleBossSummary(
     }
 
     const discordText = generateFullDiscordReport(items, {
-      includeKeySkills,
-      includeSBI: false
+      includeSummary,
+      includeKeySkills
     });
     const discordTextWithExplanations = generateFullDiscordReport(items, {
-      includeKeySkills: true,
-      includeSBI: false
+      includeSummary: true,
+      includeKeySkills: true
     });
     const discordTextWithoutExplanations = generateFullDiscordReport(items, {
-      includeKeySkills: false,
-      includeSBI: false
+      includeSummary: true,
+      includeKeySkills: false
     });
 
     const wantsPlainText =
@@ -437,6 +439,10 @@ export async function GET(req: NextRequest) {
       ? searchParams.get('onlyKills') === 'true' || searchParams.get('onlyKills') === '1'
       : true;
 
+  const includeSummary = searchParams.has('includeSummary')
+    ? searchParams.get('includeSummary') === 'true' || searchParams.get('includeSummary') === '1'
+    : true;
+
   const includeKeySkills = searchParams.has('includeKeySkills')
     ? searchParams.get('includeKeySkills') === 'true' || searchParams.get('includeKeySkills') === '1'
     : searchParams.has('includeExplanations')
@@ -450,6 +456,7 @@ export async function GET(req: NextRequest) {
     player,
     specId,
     killsOnly,
+    includeSummary,
     includeKeySkills,
     format
   });
@@ -470,6 +477,7 @@ export async function POST(req: NextRequest) {
     spec,
     killsOnly = true,
     onlyKills,
+    includeSummary = true,
     includeKeySkills = true,
     includeExplanations,
     format
@@ -488,6 +496,7 @@ export async function POST(req: NextRequest) {
     player: resolvedPlayer,
     specId: resolvedSpecId,
     killsOnly: resolvedKillsOnly,
+    includeSummary,
     includeKeySkills: resolvedKeySkills,
     format: format === 'text' ? 'text' : 'json'
   });

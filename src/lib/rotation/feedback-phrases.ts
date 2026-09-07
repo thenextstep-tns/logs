@@ -750,6 +750,11 @@ export function getDragonknightCoachingFeedback(params: {
   earlyIgneousRecasts: number;
   droppedIgneousWindows: number;
   penalizedStandardSec: number;
+  totalKnifeCasts?: number;
+  optimalKnife?: number;
+  earlyKnife?: number;
+  droppedKnife?: number;
+  avgKnifeInterval?: number;
   isTank: boolean;
   tauntUptimePct?: number;
   majorBreachUptimePct?: number;
@@ -858,6 +863,28 @@ export function getDragonknightCoachingFeedback(params: {
       leaks.push(
         interpolate(DK_PHRASES.IGNEOUS_PREMATURE[0], {
           early: params.earlyIgneousRecasts
+        })
+      );
+    }
+  }
+
+  // 5. Status Knife
+  if (params.totalKnifeCasts && params.totalKnifeCasts > 0) {
+    const knifeOptPct = (params.optimalKnife! / params.totalKnifeCasts) * 100;
+    if (knifeOptPct >= 60) {
+      strengths.push(SORC_PHRASES.KNIFE_HIGH[0]);
+    } else if ((params.earlyKnife || 0) >= (params.droppedKnife || 0)) {
+      leaks.push(
+        interpolate(SORC_PHRASES.KNIFE_PREMATURE[0], {
+          early: params.earlyKnife || 0,
+          avg: (params.avgKnifeInterval || 0).toFixed(1)
+        })
+      );
+    } else {
+      leaks.push(
+        interpolate(SORC_PHRASES.KNIFE_DROPPED[0], {
+          dropped: params.droppedKnife || 0,
+          avg: (params.avgKnifeInterval || 0).toFixed(1)
         })
       );
     }
